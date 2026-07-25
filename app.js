@@ -1978,16 +1978,35 @@ function drawTakesExport(post, takes, format, assets, backgroundMode = 'brand') 
   const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
   const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
   const hot = 100 - based;
-  const voteY = top + postHeight - 82 * unit; const buttonHeight = 56 * unit; const basedWidth = 172 * unit; const hotWidth = 208 * unit;
-  const drawCompactVote = (x, buttonWidth, color, label, mood, percent) => {
+  const voteY = top + postHeight - 76 * unit; const buttonHeight = 52 * unit; const basedWidth = 166 * unit; const hotWidth = 198 * unit;
+  context.strokeStyle = '#d5d2ce'; context.lineWidth = 2 * unit; context.beginPath(); context.moveTo(inner, voteY - 14 * unit); context.lineTo(inner + contentWidth, voteY - 14 * unit); context.stroke();
+  const drawBasedExportGlyph = (centerX, centerY, radius) => {
+    context.save(); context.translate(centerX, centerY); context.scale(radius / 16, radius / 16); context.translate(-16, -16);
+    const seal = new Path2D('M16 2.5 19 6l4.5-1 .7 4.5 4 2.5-2.4 4 1.5 4.4-4.4 1.7-2 4.2-4.6-1-3.5 3-3.1-3.4-4.7.4-.4-4.7-3.8-2.7 2.7-3.8-1.1-4.5 4.5-1.4L11 4.5z');
+    context.fillStyle = '#adf4aa'; context.strokeStyle = '#101114'; context.lineWidth = 1.8; context.lineJoin = 'round'; context.fill(seal); context.stroke(seal);
+    context.fillStyle = '#f5f1df'; context.lineWidth = 2; context.beginPath(); context.arc(16, 15.5, 8.5, 0, Math.PI * 2); context.fill(); context.stroke();
+    context.fillStyle = '#101114'; context.beginPath(); context.arc(13, 13.5, 1.2, 0, Math.PI * 2); context.arc(19, 13.5, 1.2, 0, Math.PI * 2); context.fill();
+    context.lineWidth = 2; context.lineCap = 'round'; context.beginPath(); context.moveTo(12.2, 17.2); context.bezierCurveTo(13.2, 19.7, 18.8, 19.7, 19.8, 17.2); context.stroke(); context.restore();
+  };
+  const drawCompactVote = (x, buttonWidth, color, label, mood) => {
     context.fillStyle = '#101114'; context.beginPath(); context.roundRect(x + 6 * unit, voteY + 7 * unit, buttonWidth, buttonHeight, 13 * unit); context.fill();
     context.fillStyle = color; context.strokeStyle = '#101114'; context.lineWidth = 3 * unit; context.beginPath(); context.roundRect(x, voteY, buttonWidth, buttonHeight, 13 * unit); context.fill(); context.stroke();
-    drawFace(context, x + 30 * unit, voteY + buttonHeight / 2, 16 * unit, mood, unit);
-    context.fillStyle = '#101114'; context.font = `900 ${Math.round(17 * unit)}px Arial`; context.fillText(label, x + 56 * unit, voteY + 34 * unit);
-    context.font = `900 ${Math.round(18 * unit)}px Arial`; context.textAlign = 'right'; context.fillText(`${percent}%`, x + buttonWidth - 12 * unit, voteY + 35 * unit); context.textAlign = 'left';
+    if (mood === 'based') drawBasedExportGlyph(x + 31 * unit, voteY + buttonHeight / 2, 17 * unit);
+    else drawFace(context, x + 31 * unit, voteY + buttonHeight / 2, 17 * unit, mood, unit);
+    context.fillStyle = '#101114'; context.font = `900 ${Math.round(16 * unit)}px Arial`; context.fillText(label, x + 59 * unit, voteY + 32 * unit);
   };
-  drawCompactVote(inner, basedWidth, '#55df50', 'BASED', 'based', based);
-  drawCompactVote(side + cardWidth - innerPad - hotWidth, hotWidth, '#ff5431', 'HOT TAKE', 'hot', hot);
+  const hotButtonX = inner + contentWidth - hotWidth;
+  const basedPercentX = inner + basedWidth + 14 * unit; const basedPercentWidth = 58 * unit;
+  const hotPercentWidth = 58 * unit; const hotPercentRight = hotButtonX - 14 * unit; const hotPercentX = hotPercentRight - hotPercentWidth;
+  const compactBarX = basedPercentX + basedPercentWidth + 14 * unit; const compactBarRight = hotPercentX - 14 * unit; const compactBarWidth = compactBarRight - compactBarX; const compactBarHeight = 17 * unit; const compactBarY = voteY + (buttonHeight - compactBarHeight) / 2;
+  drawCompactVote(inner, basedWidth, '#55df50', 'BASED', 'based');
+  drawCompactVote(hotButtonX, hotWidth, '#ff5431', 'HOT TAKE', 'hot');
+  context.fillStyle = '#18a832'; context.font = `900 ${Math.round(20 * unit)}px Arial`; context.fillText(`${based}%`, basedPercentX, voteY + 33 * unit);
+  context.fillStyle = '#ef3f1b'; context.textAlign = 'right'; context.fillText(`${hot}%`, hotPercentRight, voteY + 33 * unit); context.textAlign = 'left';
+  context.save(); context.beginPath(); context.roundRect(compactBarX, compactBarY, compactBarWidth, compactBarHeight, compactBarHeight / 2); context.clip();
+  context.fillStyle = '#55df50'; context.fillRect(compactBarX, compactBarY, compactBarWidth * based / 100, compactBarHeight);
+  context.fillStyle = '#ff5431'; context.fillRect(compactBarX + compactBarWidth * based / 100, compactBarY, compactBarWidth * hot / 100, compactBarHeight); context.restore();
+  context.strokeStyle = '#101114'; context.lineWidth = 3 * unit; context.beginPath(); context.roundRect(compactBarX, compactBarY, compactBarWidth, compactBarHeight, compactBarHeight / 2); context.stroke();
 
   const takesTop = top + postHeight + gap; drawRoundedCard(context, side, takesTop, cardWidth, takesHeight, 28 * unit, '#101114');
   takes.forEach((comment, index) => {

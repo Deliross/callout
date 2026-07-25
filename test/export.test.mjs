@@ -21,8 +21,10 @@ test('post export creates quote, vote and clean Takes images', async () => {
   assert.match(exporter, /previews\.push\(\['Takes', takesCanvas\]\)/);
   assert.doesNotMatch(exporter, /Top Takes/);
   assert.match(exporter, /'#55df50', 'BASED', 'based'/);
-  assert.match(exporter, /drawCompactVote\(inner, basedWidth, '#55df50', 'BASED', 'based', based\)/);
-  assert.match(exporter, /drawCompactVote\(side \+ cardWidth - innerPad - hotWidth, hotWidth, '#ff5431', 'HOT TAKE', 'hot', hot\)/);
+  assert.match(exporter, /drawCompactVote\(inner, basedWidth, '#55df50', 'BASED', 'based'\)/);
+  assert.match(exporter, /drawCompactVote\(hotButtonX, hotWidth, '#ff5431', 'HOT TAKE', 'hot'\)/);
+  assert.match(exporter, /compactBarWidth \* based \/ 100/);
+  assert.match(exporter, /drawBasedExportGlyph/);
   assert.doesNotMatch(exporter, /fillText\('TOP TAKES'/);
   assert.doesNotMatch(exporter, /voteLabel/);
   assert.match(exporter, /barWidth \* based \/ 100/);
