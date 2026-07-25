@@ -1762,7 +1762,7 @@ async function openPostDownload(post) {
       const preview = document.querySelector('#exportPairPreview'); if (!preview) return;
       preview.classList.remove('export-preview-loading'); preview.classList.toggle('transparent-preview', backgroundMode === 'transparent'); preview.innerHTML = '';
       const previews = [['Quote card', canvases[0]], ['Live votes', canvases[1]]];
-      if (takesCanvas) previews.push([`${takes.length} Top ${takes.length === 1 ? 'Take' : 'Takes'}`, takesCanvas]);
+      if (takesCanvas) previews.push(['Takes', takesCanvas]);
       previews.forEach(([label, canvas]) => { const item = document.createElement('figure'); item.append(canvas); item.insertAdjacentHTML('beforeend', `<figcaption>${label}</figcaption>`); preview.append(item); });
     };
     renderPreview();
@@ -1774,7 +1774,7 @@ async function openPostDownload(post) {
     takesButton.addEventListener('click', async () => {
       if (!takesCanvas) return;
       takesButton.disabled = true; takesButton.textContent = 'Downloading Takes...';
-      try { await downloadTakesImage(post, format, backgroundMode, takesCanvas); closeActionDialog(); showToast('Top Takes image downloaded.'); }
+      try { await downloadTakesImage(post, format, backgroundMode, takesCanvas); closeActionDialog(); showToast('Takes image downloaded.'); }
       catch (error) { takesButton.disabled = false; takesButton.textContent = 'Try download again'; showToast(error.message); }
     });
   } catch (error) { const preview = document.querySelector('#exportPairPreview'); if (preview) preview.innerHTML = '<p>Preview could not be generated.</p>'; showToast(error.message); }
@@ -1966,36 +1966,40 @@ function drawTakesExport(post, takes, format, assets, backgroundMode = 'brand') 
   const side = Math.round(46 * unit); const cardWidth = width - side * 2; const innerPad = 34 * unit; const inner = side + innerPad; const contentWidth = cardWidth - innerPad * 2;
   context.fillStyle = '#101114';
   const postText = fitExportText(context, post.text, contentWidth - 6 * unit, 170 * unit, 39, 27, unit);
-  const postHeight = Math.max(270 * unit, 145 * unit + postText.lines.length * postText.lineHeight + 38 * unit);
-  const takeRowHeight = (takes.length === 1 ? 220 : takes.length === 2 ? 205 : 188) * unit;
-  const takesHeight = 96 * unit + takeRowHeight * takes.length + 62 * unit;
+  const postHeight = Math.max(345 * unit, 145 * unit + postText.lines.length * postText.lineHeight + 116 * unit);
+  const takeRowHeight = (takes.length === 1 ? 190 : takes.length === 2 ? 174 : 162) * unit;
+  const takesHeight = 30 * unit + takeRowHeight * takes.length + 50 * unit;
   const gap = 28 * unit; const groupHeight = postHeight + gap + takesHeight; const top = Math.max(42 * unit, (height - groupHeight) / 2);
 
   drawRoundedCard(context, side, top, cardWidth, postHeight, 30 * unit, '#101114');
   drawExportAuthor(context, post, inner, top + 27 * unit, unit, assets.avatar);
   let postY = top + 132 * unit + postText.lineHeight; context.fillStyle = '#101114'; context.font = postText.font;
   postText.lines.forEach(line => { context.fillText(line, inner, postY); postY += postText.lineHeight; });
+  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
+  const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
+  const hot = 100 - based;
+  const voteY = top + postHeight - 82 * unit; const buttonHeight = 56 * unit; const basedWidth = 172 * unit; const hotWidth = 208 * unit;
+  const drawCompactVote = (x, buttonWidth, color, label, mood, percent) => {
+    context.fillStyle = '#101114'; context.beginPath(); context.roundRect(x + 6 * unit, voteY + 7 * unit, buttonWidth, buttonHeight, 13 * unit); context.fill();
+    context.fillStyle = color; context.strokeStyle = '#101114'; context.lineWidth = 3 * unit; context.beginPath(); context.roundRect(x, voteY, buttonWidth, buttonHeight, 13 * unit); context.fill(); context.stroke();
+    drawFace(context, x + 30 * unit, voteY + buttonHeight / 2, 16 * unit, mood, unit);
+    context.fillStyle = '#101114'; context.font = `900 ${Math.round(17 * unit)}px Arial`; context.fillText(label, x + 56 * unit, voteY + 34 * unit);
+    context.font = `900 ${Math.round(18 * unit)}px Arial`; context.textAlign = 'right'; context.fillText(`${percent}%`, x + buttonWidth - 12 * unit, voteY + 35 * unit); context.textAlign = 'left';
+  };
+  drawCompactVote(inner, basedWidth, '#55df50', 'BASED', 'based', based);
+  drawCompactVote(side + cardWidth - innerPad - hotWidth, hotWidth, '#ff5431', 'HOT TAKE', 'hot', hot);
 
   const takesTop = top + postHeight + gap; drawRoundedCard(context, side, takesTop, cardWidth, takesHeight, 28 * unit, '#101114');
-  context.fillStyle = '#101114'; context.font = `900 ${Math.round(26 * unit)}px Arial`; context.fillText('TOP TAKES', inner, takesTop + 53 * unit);
-  const countText = String(takes.length); const pillWidth = 44 * unit;
-  context.fillStyle = '#f4f1eb'; context.strokeStyle = '#101114'; context.lineWidth = 2 * unit; context.beginPath(); context.roundRect(inner + 164 * unit, takesTop + 24 * unit, pillWidth, 38 * unit, 19 * unit); context.fill(); context.stroke();
-  context.fillStyle = '#101114'; context.font = `900 ${Math.round(17 * unit)}px Arial`; context.textAlign = 'center'; context.fillText(countText, inner + 164 * unit + pillWidth / 2, takesTop + 50 * unit); context.textAlign = 'left';
-  context.strokeStyle = '#d5d2ce'; context.lineWidth = 2 * unit; context.beginPath(); context.moveTo(inner, takesTop + 78 * unit); context.lineTo(side + cardWidth - innerPad, takesTop + 78 * unit); context.stroke();
-
   takes.forEach((comment, index) => {
-    const rowTop = takesTop + 84 * unit + index * takeRowHeight; const author = exportCommentAuthor(comment); const avatarSize = 54 * unit; const avatarX = inner; const avatarY = rowTop + 24 * unit; const avatarImage = assets.takeAvatars?.[index];
+    const rowTop = takesTop + 18 * unit + index * takeRowHeight; const author = exportCommentAuthor(comment); const avatarSize = 54 * unit; const avatarX = inner; const avatarY = rowTop + 18 * unit; const avatarImage = assets.takeAvatars?.[index];
     context.strokeStyle = '#c8c5bf'; context.lineWidth = 3 * unit;
     if (index < takes.length - 1) { context.beginPath(); context.moveTo(avatarX + avatarSize / 2, avatarY + avatarSize); context.lineTo(avatarX + avatarSize / 2, rowTop + takeRowHeight); context.stroke(); }
     context.fillStyle = '#e8ecef'; context.strokeStyle = '#101114'; context.lineWidth = 3 * unit; context.beginPath(); context.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2); context.fill(); context.stroke();
     if (avatarImage) { context.save(); context.beginPath(); context.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 - 3 * unit, 0, Math.PI * 2); context.clip(); drawImageCover(context, avatarImage, avatarX + 3 * unit, avatarY + 3 * unit, avatarSize - 6 * unit, avatarSize - 6 * unit); context.restore(); }
     else { context.fillStyle = '#101114'; context.font = `900 ${Math.round(22 * unit)}px Arial`; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText((author.name || 'C').charAt(0).toUpperCase(), avatarX + avatarSize / 2, avatarY + avatarSize / 2 + unit); context.textAlign = 'left'; context.textBaseline = 'alphabetic'; }
     const textX = avatarX + avatarSize + 20 * unit; const textWidth = contentWidth - avatarSize - 22 * unit;
-    context.fillStyle = '#101114'; context.font = `900 ${Math.round(21 * unit)}px Arial`; context.fillText(author.handle || author.name, textX, rowTop + 50 * unit, textWidth - 130 * unit);
-    const votes = Number(comment.votes || 0); const voteLabel = `↑ ${votes.toLocaleString()}`; context.font = `900 ${Math.round(17 * unit)}px Arial`; const voteWidth = Math.max(64 * unit, context.measureText(voteLabel).width + 24 * unit);
-    context.fillStyle = votes > 0 ? '#55df50' : '#f4f1eb'; context.strokeStyle = '#101114'; context.lineWidth = 2 * unit; context.beginPath(); context.roundRect(side + cardWidth - innerPad - voteWidth, rowTop + 24 * unit, voteWidth, 36 * unit, 18 * unit); context.fill(); context.stroke();
-    context.fillStyle = '#101114'; context.textAlign = 'center'; context.fillText(voteLabel, side + cardWidth - innerPad - voteWidth / 2, rowTop + 48 * unit); context.textAlign = 'left';
-    const commentText = fitExportText(context, comment.text, textWidth, takeRowHeight - 86 * unit, 28, 20, unit); context.fillStyle = '#101114'; context.font = commentText.font; let commentY = rowTop + 91 * unit;
+    context.fillStyle = '#101114'; context.font = `900 ${Math.round(21 * unit)}px Arial`; context.fillText(author.handle || author.name, textX, rowTop + 44 * unit, textWidth);
+    const commentText = fitExportText(context, comment.text, textWidth, takeRowHeight - 78 * unit, 28, 20, unit); context.fillStyle = '#101114'; context.font = commentText.font; let commentY = rowTop + 82 * unit;
     commentText.lines.forEach(line => { context.fillText(line, textX, commentY); commentY += commentText.lineHeight; });
     if (index < takes.length - 1) { context.strokeStyle = '#e0ddd7'; context.lineWidth = 2 * unit; context.beginPath(); context.moveTo(textX, rowTop + takeRowHeight - 4 * unit); context.lineTo(side + cardWidth - innerPad, rowTop + takeRowHeight - 4 * unit); context.stroke(); }
   });

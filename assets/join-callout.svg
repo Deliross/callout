@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="500" viewBox="0 0 1600 500" role="img" aria-labelledby="title desc">
+  <title id="title">Join Callout</title>
+  <desc id="desc">A transparent neo-brutalist Callout promotional banner with the website address.</desc>
+  <g transform="translate(42 38)">
+    <rect x="18" y="20" width="1480" height="390" rx="54" fill="#101114"/>
+    <rect width="1480" height="390" rx="54" fill="#fffdfb" stroke="#101114" stroke-width="10"/>
+    <rect width="1480" height="84" rx="48" fill="#ffcf26"/>
+    <path d="M0 84h1480" stroke="#101114" stroke-width="10"/>
+    <circle cx="92" cy="42" r="17" fill="#55df50" stroke="#101114" stroke-width="6"/>
+    <circle cx="1390" cy="42" r="17" fill="#ff5431" stroke="#101114" stroke-width="6"/>
+    <text x="740" y="217" fill="#101114" font-family="Arial Black, Arial, sans-serif" font-size="112" font-weight="900" letter-spacing="-5" text-anchor="middle">JOIN CALLOUT.</text>
+    <rect x="350" y="252" width="780" height="88" rx="24" fill="#101114"/>
+    <text x="740" y="313" fill="#fffdfb" font-family="Arial Black, Arial, sans-serif" font-size="48" font-weight="900" letter-spacing="2" text-anchor="middle">CALLOUT.COM</text>
+  </g>
+</svg>
