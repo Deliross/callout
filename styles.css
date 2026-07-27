@@ -537,6 +537,19 @@ html[data-resolved-theme="dark"] .guild-public-grid article, html[data-resolved-
   }
   .sidebar::-webkit-scrollbar,
   .right-rail::-webkit-scrollbar { display: none; }
+  .right-rail > * { flex: 0 0 auto; }
+}
+
+@media (min-width: 841px) and (max-height: 980px) {
+  .right-rail { gap: 12px; padding-top: 14px; padding-bottom: 18px; }
+  .right-rail > .personal-cringe-widget,
+  .right-rail > .rail-guild-card { padding: 14px; }
+  .right-rail > .personal-cringe-widget { gap: 7px; }
+  .right-rail .personal-cringe-widget > button,
+  .right-rail .rail-guild-card button { min-height: 40px; }
+  .right-rail .guild-art { height: 58px; margin: 8px 0; }
+  .right-rail .rail-guild-card > strong { margin-bottom: 5px; }
+  .right-rail .rail-guild-card > p:not(.eyebrow) { margin-bottom: 10px; }
 }
 
 @media (max-width: 1320px) {
