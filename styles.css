@@ -383,6 +383,8 @@ html[data-resolved-theme="dark"] .emoji-picker summary,html[data-resolved-theme=
 .reddit-actions button { padding: 5px 8px; border: 0; border-radius: 6px; color: #66635e; background: transparent; font-size: 11px; font-weight: 800; }
 .reddit-actions button:hover { background: var(--soft); }
 .reddit-actions button.active { color: var(--orange); background: #fff0eb; }
+.reddit-actions .comment-more { min-width:30px;border:1px solid transparent;font-size:13px;letter-spacing:1px; }
+.reddit-actions .comment-more:hover { color:#d63327;border-color:#d63327;background:color-mix(in srgb,#d63327 10%,var(--paper)); }
 .reply-slot { margin-top: 10px; }
 .reply-composer { padding: 11px; border-left: 3px solid var(--purple); border-radius: 0 10px 10px 0; background: var(--soft); }
 .reply-composer textarea { min-height: 68px; }

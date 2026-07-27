@@ -503,6 +503,32 @@ export async function voteOnComment(commentId, userId) {
   return serializeComment({ ...comment, author: publicUser(memoryUsers.get(comment.author)) }, userId);
 }
 
+export async function deleteComment(commentId, requesterId, { isAdmin = false } = {}) {
+  if (connected) {
+    const comment = await Comment.findById(commentId).lean().exec();
+    if (!comment) return { status: 'not_found', deletedCount: 0 };
+    if (!isAdmin && String(comment.author) !== String(requesterId)) return { status: 'forbidden', deletedCount: 0 };
+    const ids = [comment._id];
+    for (let index = 0; index < ids.length; index += 1) {
+      const replies = await Comment.find({ parent: ids[index] }).select('_id').lean().exec();
+      ids.push(...replies.map(reply => reply._id));
+    }
+    const result = await Comment.deleteMany({ _id: { $in: ids } }).exec();
+    return { status: 'deleted', deletedCount: Number(result.deletedCount || ids.length), postId: String(comment.post) };
+  }
+  const comment = memoryComments.get(String(commentId));
+  if (!comment) return { status: 'not_found', deletedCount: 0 };
+  if (!isAdmin && comment.author !== String(requesterId)) return { status: 'forbidden', deletedCount: 0 };
+  const ids = [String(commentId)];
+  for (let index = 0; index < ids.length; index += 1) {
+    for (const candidate of memoryComments.values()) {
+      if (String(candidate.parent || '') === ids[index] && !ids.includes(String(candidate.id))) ids.push(String(candidate.id));
+    }
+  }
+  ids.forEach(id => memoryComments.delete(id));
+  return { status: 'deleted', deletedCount: ids.length, postId: String(comment.post) };
+}
+
 export async function updatePost(postId, authorId, values) {
   if (connected) return Post.findOneAndUpdate({ _id: postId, author: authorId }, values, { new: true, runValidators: true }).exec();
   const post = memoryPosts.get(String(postId));

@@ -772,6 +772,12 @@ function timeLabel(timestamp) {
   return `${Math.floor(minutes / 60)}h ago`;
 }
 
+function canDeleteComment(comment) {
+  if (!sessionUser) return false;
+  const authorId = typeof comment.author === 'object' ? comment.author?.id : '';
+  return Boolean(sessionUser.isAdmin || (authorId && String(authorId) === String(sessionUser.id)));
+}
+
 function commentNode(comment, depth = 0) {
   const author = comment.author || {};
   const authorName = typeof author === 'string' ? author : (author.handle || author.displayName || '@member');
@@ -781,7 +787,7 @@ function commentNode(comment, depth = 0) {
     <div class="comment-content"><div class="comment-author"><strong>${escapeHtml(authorName)}</strong>${typeof author === 'object' && author.isAutomated ? '<span class="automation-label">AUTOMATED</span>' : ''}<span>•</span><time>${timeLabel(comment.createdAt)}</time></div>
       <p>${escapeHtml(comment.text)}</p>
       ${comment.gifUrl ? `<img class="comment-gif" src="${escapeHtml(comment.gifUrl)}" alt="GIF attached to Take" loading="lazy" />` : ''}
-      <div class="reddit-actions"><button type="button" data-upvote-comment="${comment.id}" class="${comment.upvoted ? 'active' : ''}">↑ ${comment.votes || 0}</button><button type="button" data-reply-comment="${comment.id}">↩ Reply</button><button type="button">•••</button></div>
+      <div class="reddit-actions"><button type="button" data-upvote-comment="${comment.id}" class="${comment.upvoted ? 'active' : ''}">↑ ${comment.votes || 0}</button><button type="button" data-reply-comment="${comment.id}">↩ Reply</button>${canDeleteComment(comment) ? `<button class="comment-more" type="button" data-comment-menu="${comment.id}" aria-label="Take options">•••</button>` : ''}</div>
       <div class="reply-slot" id="reply-${comment.id}" hidden></div>
       ${(comment.replies || []).map(reply => commentNode(reply, depth + 1)).join('')}
     </div>
@@ -1308,6 +1314,7 @@ function bindViewInteractions(route) {
   document.querySelector('#avatarUpload')?.addEventListener('change', handleAvatarUpload);
   document.querySelectorAll('[data-reply-comment]').forEach(button => button.addEventListener('click', () => openReplyComposer(button.dataset.replyComment)));
   document.querySelectorAll('[data-upvote-comment]').forEach(button => button.addEventListener('click', () => toggleCommentVote(button.dataset.upvoteComment)));
+  document.querySelectorAll('[data-comment-menu]').forEach(button => button.addEventListener('click', () => openCommentMenu(button.dataset.commentMenu)));
   document.querySelectorAll('[data-unblock]').forEach(button => button.addEventListener('click', () => unblockUser(button.dataset.unblock)));
   document.querySelectorAll('[data-open-guild]').forEach(button => button.addEventListener('click', () => navigate(`guild/${button.dataset.openGuild}/public`)));
   document.querySelectorAll('[data-toggle-guild]').forEach(button => button.addEventListener('click', async () => {
@@ -2245,6 +2252,37 @@ async function toggleCommentVote(id) {
   if (!comment) return;
   if (!sessionUser) { navigate('auth'); return showToast('Sign in to vote on comments.'); }
   try { await apiFetch(`/api/comments/${id}/vote`, { method: 'POST' }); await hydrateTake(post); await Promise.all([hydrateSession(), hydrateLeaderboard()]); renderRoute(); } catch (error) { showToast(error.message); }
+}
+
+function openCommentMenu(id) {
+  const post = activeTake();
+  const comment = post && findComment(post.comments || [], id);
+  if (!comment || !canDeleteComment(comment)) return showToast('You can only manage your own Takes.');
+  const adminCopy = sessionUser?.isAdmin && String(comment.author?.id || '') !== String(sessionUser.id)
+    ? 'Administrator action: this permanently removes the selected Take and any replies beneath it.'
+    : 'This permanently removes your Take and any replies beneath it.';
+  showActionDialog(actionDialogShell('TAKE OPTIONS', 'Delete this Take?', `<p class="dialog-copy">${adminCopy}</p><div class="confirm-actions"><button class="quiet-action" type="button" data-close-action-secondary>Cancel</button><button class="danger-action" type="button" data-delete-comment="${escapeHtml(String(id))}">Delete Take</button></div>`));
+  document.querySelector('[data-close-action-secondary]')?.addEventListener('click', closeActionDialog);
+  document.querySelector('[data-delete-comment]')?.addEventListener('click', deleteSelectedComment);
+}
+
+async function deleteSelectedComment(event) {
+  const id = event.currentTarget.dataset.deleteComment;
+  const post = activeTake();
+  if (!post || !id) return;
+  event.currentTarget.disabled = true;
+  event.currentTarget.textContent = 'Deleting...';
+  try {
+    const result = await apiFetch(`/api/comments/${id}`, { method: 'DELETE' });
+    await hydrateTake(post);
+    closeActionDialog();
+    renderRoute();
+    showToast(result.deletedCount > 1 ? `Take and ${result.deletedCount - 1} replies deleted.` : 'Take deleted.');
+  } catch (error) {
+    event.currentTarget.disabled = false;
+    event.currentTarget.textContent = 'Delete Take';
+    showToast(error.message);
+  }
 }
 
 function applyDisplaySettings() {

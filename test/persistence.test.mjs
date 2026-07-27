@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  acceptFriendRequest, adminUpdatePost, canAccessPost, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createUser, findUserById, getGuild, getPublicProfile,
+  acceptFriendRequest, adminUpdatePost, canAccessPost, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createUser, deleteComment, findUserById, getGuild, getPublicProfile,
   listComments, listFeatureIdeas, listFriends, listGuildMessages, listGuildPosts, listGuilds, listLeaderboard, listMessages, listNotifications,
   listPosts, listSavedPostIds, listSavedPosts, searchCallout, toggleGuildMembership,
   reactToPost, toggleSavedPost, updateGuild, updateGuildMember, voteOnPost
@@ -35,6 +35,28 @@ test('votes, comments, saves and notifications persist per account', async () =>
   assert.equal((await listSavedPosts(reader.id))[0].content, 'Persistence test');
   assert.ok((await listNotifications(author.id)).length >= 2);
   assert.equal((await findUserById(reader.id)).vibeScore, 5);
+});
+
+test('Take authors can delete their own comments and admins can delete any thread', async () => {
+  const { author, reader } = await accounts();
+  const post = await createPost(author.id, { content: 'Comment moderation test', category: 'Life' });
+  const root = await createComment(post.id, author.id, { text: 'Author-owned Take' });
+  await createComment(post.id, reader.id, { text: 'Nested reply', parent: root.id });
+
+  const forbidden = await deleteComment(root.id, reader.id);
+  assert.equal(forbidden.status, 'forbidden');
+  assert.equal((await listComments(post.id)).length, 1);
+
+  const adminRemoval = await deleteComment(root.id, reader.id, { isAdmin: true });
+  assert.equal(adminRemoval.status, 'deleted');
+  assert.equal(adminRemoval.deletedCount, 2);
+  assert.equal((await listComments(post.id)).length, 0);
+
+  const ownTake = await createComment(post.id, reader.id, { text: 'Reader-owned Take' });
+  const ownerRemoval = await deleteComment(ownTake.id, reader.id);
+  assert.equal(ownerRemoval.status, 'deleted');
+  assert.equal(ownerRemoval.deletedCount, 1);
+  assert.equal((await listComments(post.id)).length, 0);
 });
 
 test('viral video milestones notify creators once when a take trends', async () => {

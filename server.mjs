@@ -21,7 +21,7 @@ import {
   validate, verifyRefreshToken
 } from './server/security.mjs';
 import {
-  acceptFriendRequest, canAccessPost, connectDatabase, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deletePost,
+  acceptFriendRequest, canAccessPost, connectDatabase, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteComment, deletePost,
   findUserByEmail, findUserByGoogleId, findUserById, getGuild, getPostForSpeech, getPublicProfile, getPublicPost, joinGuildByInvite, listComments, listFriends, listGuildAudit, listGuildMembers, listGuildMessages, listGuildPosts, listGuilds, listLeaderboard, listMessages,
   deleteNotificationMute, listDrafts, listFeatureIdeas, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, searchCallout, setNotificationMute,
   savePostSpeech, toggleGuildMembership, toggleSavedPost, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
@@ -394,6 +394,15 @@ app.post('/api/comments/:id/vote', requireAuth, async (req, res, next) => {
     const comment = await voteOnComment(req.params.id, req.userId);
     if (!comment) return res.status(404).json({ error: 'Comment not found.' });
     res.json({ comment });
+  } catch (error) { next(error); }
+});
+app.delete('/api/comments/:id', requireAuth, async (req, res, next) => {
+  try {
+    const user = await findUserById(req.userId);
+    const result = await deleteComment(req.params.id, req.userId, { isAdmin: isAdminAccount(user) });
+    if (result.status === 'not_found') return res.status(404).json({ error: 'Take not found.' });
+    if (result.status === 'forbidden') return res.status(403).json({ error: 'You can only delete your own Takes.' });
+    res.json({ deleted: true, deletedCount: result.deletedCount, postId: result.postId });
   } catch (error) { next(error); }
 });
 
