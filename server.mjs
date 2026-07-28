@@ -19,7 +19,7 @@ import {
   adjustVibeTokens, claimDailyTokens, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
   listFeatureControls, listStaff, listTopics, openPrediction, openRedemption,
-  placePredictionWager, postAllowsWrites, commentAllowsWrites, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
+  placePredictionWager, postAllowsWrites, commentAllowsWrites, migrateBigPatchDefaults, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
   setFeatureControl, setStaffRole, submitDefense, topicAllowsWrites, updateAboutUpdate, updateTopic, voteBattle, voteRedemption,
   featureEnabled,
   walletSummary
@@ -786,6 +786,8 @@ async function startServer() {
     if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be different.');
     const connected = await connectDatabase();
     if (!connected) throw new Error('Production requires a working MongoDB connection.');
+    const migration = await migrateBigPatchDefaults();
+    console.log(`Big Patch migration ready (${migration.users} users, ${migration.posts} posts, ${migration.guildMessages} Pinboard messages updated).`);
   }
 
   app.listen(port, () => {

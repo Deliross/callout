@@ -10,7 +10,7 @@ if (!process.env.DB_URI) throw new Error('DB_URI is required.');
 await mongoose.connect(process.env.DB_URI);
 const cycle = String(Math.floor(Date.now() / (5 * 60 * 60 * 1000)));
 const [users, posts, messages] = await Promise.all([
-  User.updateMany({ vibeTokens: { $exists: false } }, { $set: { vibeTokens: 100, staffRole: 'member' } }),
+  User.updateMany({ vibeTokens: { $exists: false } }, { $set: { vibeTokens: 100 } }),
   Post.updateMany({ lifecycle: { $exists: false } }, {
     $set: {
       anonymous: false,

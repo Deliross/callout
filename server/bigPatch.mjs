@@ -626,3 +626,23 @@ export async function processBigPatchLifecycles() {
   await GuildMessage.deleteMany({ archivedAt: { $lte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } });
   return { topics: topics.length, predictions: predictions.length, redemptions: redemptions.length, battles: battleChanges };
 }
+
+export async function migrateBigPatchDefaults() {
+  if (!connected()) return { users: 0, posts: 0, guildMessages: 0 };
+  const cycle = String(Math.floor(Date.now() / (5 * 60 * 60 * 1000)));
+  const [users, posts, guildMessages] = await Promise.all([
+    User.updateMany({ vibeTokens: { $exists: false } }, { $set: { vibeTokens: 100 } }),
+    Post.updateMany({ lifecycle: { $exists: false } }, {
+      $set: {
+        anonymous: false,
+        lifecycle: {
+          prediction: { status: 'none', locksAt: null, settlesAt: null, outcome: '' },
+          defense: { status: 'none', content: '', submittedAt: null, editableUntil: null },
+          redemption: { status: 'none', opensAt: null, closesAt: null, votes: [] }
+        }
+      }
+    }),
+    GuildMessage.updateMany({ boardCycle: { $exists: false } }, { $set: { boardCycle: cycle, attachments: [], reactions: [], pinned: false } })
+  ]);
+  return { users: users.modifiedCount, posts: posts.modifiedCount, guildMessages: guildMessages.modifiedCount };
+}
