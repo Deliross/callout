@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260727-stickyrails2" />
+    <link rel="stylesheet" href="styles.css?v=20260728-bigpatch" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -49,11 +49,14 @@
           <div class="global-search-results" id="globalSearchResults" hidden></div>
           <kbd>⌘ K</kbd>
         </div>
-        <button class="profile-button" id="profileButton" type="button" aria-label="Open profile">
-          <span class="avatar avatar-bruce" id="headerAvatar">C</span>
-          <span class="profile-copy"><strong id="headerName">Guest</strong><small><span id="headerHandle">@guest</span><b id="headerVibe">✦ 0</b></small></span>
-          <span class="chevron">›</span>
-        </button>
+        <div class="top-account">
+          <button class="notification-bell" id="notificationBell" type="button" aria-label="Open notifications"><svg><use href="#i-bell"></use></svg><b class="badge" id="notificationBadge" hidden>0</b></button>
+          <button class="profile-button" id="profileButton" type="button" aria-label="Open profile">
+            <span class="avatar avatar-bruce" id="headerAvatar">C</span>
+            <span class="profile-copy"><strong id="headerName">Guest</strong><small><span id="headerHandle">@guest</span><b id="headerVibe">✦ 0</b></small></span>
+            <span class="chevron">›</span>
+          </button>
+        </div>
         <button class="mobile-menu" id="mobileMenu" type="button" aria-label="Open navigation">☰</button>
       </header>
 
@@ -64,7 +67,6 @@
           <a class="nav-item" href="#guilds" data-route="guilds"><svg><use href="#i-users"></use></svg><span>Guilds</span></a>
           <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
           <a class="nav-item" href="#leaderboards" data-route="leaderboards"><svg><use href="#i-trophy"></use></svg><span>Leaderboards</span></a>
-          <a class="nav-item" href="#notifications" data-route="notifications"><svg><use href="#i-bell"></use></svg><span>Notifications</span><b class="badge" id="notificationBadge" hidden>0</b></a>
           <a class="nav-item" href="#messages" data-route="messages"><svg><use href="#i-message"></use></svg><span>Messages</span></a>
           <a class="nav-item" href="#saved" data-route="saved"><svg><use href="#i-bookmark"></use></svg><span>Saved</span></a>
           <a class="nav-item" href="#settings" data-route="settings"><svg><use href="#i-settings"></use></svg><span>Settings</span></a>
@@ -96,15 +98,10 @@
           <div class="rail-leaderboard-rows" id="railLeaderboardRows"><p>No ranked users yet.</p></div>
           <p class="status-note" id="railRankNote">Sign in to claim your place.</p>
         </section>
-        <section class="personal-cringe-widget" aria-label="Your personal Heat level">
-          <header><span class="section-kicker">YOUR HEAT LEVEL</span><strong id="personalCringeLevel">Your Heat Level</strong></header>
-          <p id="personalCringeMeta">Sign in to start your public Heat level.</p>
-          <div class="personal-cringe-track"><span id="personalCringeProgress"></span></div>
-          <small id="personalCringeNext">Progress appears after your first Hot Take vote.</small>
-          <button type="button" data-personal-cringe>View Your Heat</button>
+        <section class="live-moments-rail" id="liveMomentsRail" aria-label="Live moments">
+          <header><strong>LIVE MOMENTS</strong><button class="text-button" type="button" data-route-button="topics">See all</button></header>
+          <div id="liveMomentRows"><p>Live Topics will appear here.</p></div>
         </section>
-        <div class="sidebar-widgets" id="sidebarWidgets" aria-label="Customizable sidebar widgets"></div>
-        <div class="ad-slot ad-rectangle" data-ad-placement="right-rail"><ins class="adsbygoogle" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="ADSENSE_RIGHT_RAIL_SLOT" data-ad-format="rectangle" data-full-width-responsive="true"></ins><span class="ad-placeholder-copy">ADVERTISEMENT <small>300 × 250</small></span></div>
         <section class="rail-guild-card" id="railGuildCard">
           <p class="eyebrow">GUILDS</p>
           <div class="guild-art" id="railGuildArt">⚔</div>
@@ -112,11 +109,13 @@
           <p id="railGuildDescription">Join communities built around shared interests and stronger takes.</p>
           <div id="railGuildActions"><button type="button" data-route-button="guilds">View Guilds</button></div>
         </section>
+        <div class="sidebar-widgets" id="sidebarWidgets" aria-label="Customizable sidebar widgets"></div>
+        <div class="ad-slot ad-rectangle" data-ad-placement="right-rail"><ins class="adsbygoogle" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="ADSENSE_RIGHT_RAIL_SLOT" data-ad-format="rectangle" data-full-width-responsive="true"></ins><span class="ad-placeholder-copy">ADVERTISEMENT <small>300 × 250</small></span></div>
       </aside>
 
       <footer class="site-footer">
         <div class="ad-slot footer-ad" data-ad-placement="footer"><ins class="adsbygoogle" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="ADSENSE_FOOTER_SLOT" data-ad-format="horizontal" data-full-width-responsive="true"></ins><span class="ad-placeholder-copy">ADVERTISEMENT <small>Responsive footer unit</small></span></div>
-        <div class="footer-bottom"><span>© 2026 Callout</span><nav aria-label="Legal"><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="#auth" data-route="auth">Sign in</a></nav><p>Solo project. Do not share sensitive personal information.</p></div>
+        <div class="footer-bottom"><span>© 2026 Callout</span><nav aria-label="Legal"><a href="#about" data-route="about">About</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="#auth" data-route="auth">Sign in</a></nav><p>Solo project. Do not share sensitive personal information.</p></div>
       </footer>
     </div>
 
@@ -134,7 +133,7 @@
         <section class="external-attach-composer" id="externalAttachComposer" hidden><header><div><strong>ATTACH AN OUTSIDE POST</strong><small>X, Reddit, or Bluesky</small></div><button type="button" id="closeExternalAttach" aria-label="Close attachment tool">×</button></header><div><input id="externalPostUrl" type="url" inputmode="url" placeholder="Paste a direct post link" /><button type="button" id="previewExternalPost">Build preview</button></div><p>Callout keeps the source visible and links back to the original post.</p></section>
         <input id="gifUrlInput" type="url" inputmode="url" placeholder="Paste a direct HTTPS GIF URL" hidden />
         <section class="poll-builder" id="pollBuilder" hidden><label>Poll question<input id="pollQuestion" maxlength="240" /></label><div id="pollOptions"><input maxlength="100" placeholder="Option 1" /><input maxlength="100" placeholder="Option 2" /></div><button type="button" id="addPollOption">+ Add option</button></section>
-        <div class="composer-options"><label>Audience<select id="takeAudience"><option value="public">Public</option><option value="friends">Friends</option></select></label><label>Topics<input id="takeTopics" maxlength="120" placeholder="movies, hot takes" /></label><label>Content warning<input id="takeWarning" maxlength="160" placeholder="Optional" /></label><label>Schedule<input id="takeSchedule" type="datetime-local" /></label><label>Reactions<select id="takeReactionSet"><option value="classic">Classic</option><option value="support">Supportive</option><option value="spicy">Spicy</option></select></label></div>
+        <div class="composer-options"><label>Audience<select id="takeAudience"><option value="public">Public</option><option value="friends">Friends</option></select></label><label class="anonymous-compose-toggle"><input id="takeAnonymous" type="checkbox" /><span><b>Post anonymously</b><small>Your identity is hidden behind a rotating Signal.</small></span></label><label>Live Topic<select id="takeLiveTopic"><option value="">None</option></select></label><label>Topics<input id="takeTopics" maxlength="120" placeholder="movies, hot takes" /></label><label>Content warning<input id="takeWarning" maxlength="160" placeholder="Optional" /></label><label>Schedule<input id="takeSchedule" type="datetime-local" /></label><label>Reactions<select id="takeReactionSet"><option value="classic">Classic</option><option value="support">Supportive</option><option value="spicy">Spicy</option></select></label></div>
         <p class="media-rules">Up to 5 images, square videos, or GIFs. Videos: maximum 25 seconds and 8 MB. Links belong in the embed field, not post text.</p>
         <input id="takeEmbed" type="hidden" />
         <div class="composer-meta"><select id="takeCategory" aria-label="Category"><option>Movies</option><option>Music</option><option>Entertainment</option><option>Games</option><option>Life</option></select><span id="charCount">0 / 2000</span></div>
@@ -165,6 +164,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260727-commentdelete1"></script>
+    <script src="app.js?v=20260728-bigpatch"></script>
   </body>
 </html>

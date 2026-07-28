@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { User } from './models/User.mjs';
 import { Post } from './models/Post.mjs';
@@ -14,6 +14,7 @@ import { GuildMembership } from './models/GuildMembership.mjs';
 import { GuildAudit } from './models/GuildAudit.mjs';
 import { NotificationMute } from './models/NotificationMute.mjs';
 import { FeatureIdea } from './models/FeatureIdea.mjs';
+import { anonymousIdentity, enrichPostLifecycle, heatTier, prepareAnonymousPost } from './bigPatch.mjs';
 
 let connected = false;
 const memoryUsers = new Map();
@@ -44,7 +45,7 @@ const DEFAULT_GUILD_ROLES = [
 const membershipKey = (guildId, userId) => `${guildId}:${userId}`;
 const reachedViralMilestones = totalVotes => VIRAL_VIDEO_MILESTONES.filter(milestone => totalVotes >= milestone);
 const nextViralMilestone = totalVotes => VIRAL_VIDEO_MILESTONES.find(milestone => totalVotes < milestone) || null;
-const viralVideoNotificationText = milestone => `Your take hit ${Number(milestone).toLocaleString()} votes — a viral video card is ready to share.`;
+const viralVideoNotificationText = milestone => `Your take hit ${Number(milestone).toLocaleString()} votes â€” a viral video card is ready to share.`;
 
 export async function connectDatabase() {
   if (!process.env.DB_URI) {
@@ -93,7 +94,9 @@ export function publicUser(user) {
   const { password, refreshTokenHash, refreshTokenHashes, passwordResetHash, passwordResetExpiresAt, ...safe } = value;
   safe.id = String(safe._id || safe.id);
   safe.vibeScore = Number(safe.vibeScore || 0);
+  safe.vibeTokens = Number(safe.vibeTokens ?? 100);
   safe.cringeScore = Number(safe.cringeScore || 0);
+  safe.heatTier = heatTier(safe.cringeScore);
   safe.vibeBadges = vibeBadges(safe.vibeScore);
   safe.cosmeticUnlocks = cosmeticUnlocks(safe.vibeScore);
   delete safe._id;
@@ -102,12 +105,12 @@ export function publicUser(user) {
 }
 
 export function vibeBadges(score = 0) {
-  const badges = [{ key: 'new-voice', name: 'Mic Check', icon: '◉', threshold: 0 }];
-  if (score >= 25) badges.push({ key: 'good-energy', name: 'First Spark', icon: '✦', threshold: 25 });
-  if (score >= 100) badges.push({ key: 'conversation-starter', name: 'Crowd Starter', icon: '⚡', threshold: 100 });
-  if (score >= 250) badges.push({ key: 'community-spark', name: 'Debate Driver', icon: '◆', threshold: 250 });
-  if (score >= 1000) badges.push({ key: 'vibe-legend', name: 'Headliner', icon: '♛', threshold: 1000 });
-  if (score >= 2500) badges.push({ key: 'callout-icon', name: 'Callout Icon', icon: '★', threshold: 2500 });
+  const badges = [{ key: 'new-voice', name: 'Mic Check', icon: 'â—‰', threshold: 0 }];
+  if (score >= 25) badges.push({ key: 'good-energy', name: 'First Spark', icon: 'âœ¦', threshold: 25 });
+  if (score >= 100) badges.push({ key: 'conversation-starter', name: 'Crowd Starter', icon: 'âš¡', threshold: 100 });
+  if (score >= 250) badges.push({ key: 'community-spark', name: 'Debate Driver', icon: 'â—†', threshold: 250 });
+  if (score >= 1000) badges.push({ key: 'vibe-legend', name: 'Headliner', icon: 'â™›', threshold: 1000 });
+  if (score >= 2500) badges.push({ key: 'callout-icon', name: 'Callout Icon', icon: 'â˜…', threshold: 2500 });
   return badges;
 }
 
@@ -123,7 +126,7 @@ export function cosmeticUnlocks(score = 0) {
 function publicIdentity(user) {
   const account = publicUser(user);
   if (!account) return null;
-  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl: account.avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', vibeScore: account.vibeScore, vibeBadges: account.vibeBadges, cringeScore: account.cringeScore, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
+  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl: account.avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', vibeScore: account.vibeScore, vibeBadges: account.vibeBadges, vibeTokens: account.vibeTokens, cringeScore: account.cringeScore, heatTier: account.heatTier, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
 }
 
 async function incrementVibe(userId, amount) {
@@ -165,7 +168,7 @@ export async function createUser(values) {
   }
   if (connected) return User.create(userValues);
   const now = new Date();
-  const user = { id: crypto.randomUUID(), vibeScore: 0, cringeScore: 0, points: 0, postCount: 0, savedPosts: [], avatarUrl: '', bio: '', bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', vibeAura: 'auto', profileBackground: 'clean', profileLayout: ['posts', 'about', 'guilds', 'achievements', 'media', 'trophies'], showcaseMode: 'featured', featuredBadges: [], featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
+  const user = { id: crypto.randomUUID(), vibeScore: 0, vibeTokens: 100, staffRole: 'member', cringeScore: 0, points: 0, postCount: 0, savedPosts: [], avatarUrl: '', bio: '', bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', vibeAura: 'auto', profileBackground: 'clean', profileLayout: ['posts', 'about', 'guilds', 'achievements', 'media', 'trophies'], showcaseMode: 'featured', featuredBadges: [], featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
   memoryUsers.set(user.id, user);
   return user;
 }
@@ -179,6 +182,7 @@ export async function updateUser(id, values) {
 }
 
 export async function createPost(authorId, values) {
+  values = await prepareAnonymousPost(authorId, values);
   const publishedNow = !values.draft && (!values.scheduledPublishedAt || new Date(values.scheduledPublishedAt) <= new Date());
   if (connected) {
     let post;
@@ -228,8 +232,15 @@ const serializePost = (post, userId = '') => {
     generatedAt: item.generatedAt,
     textHash: item.textHash
   }));
-  return { ...value, ...effective, id: String(value._id || value.id), _id: undefined, votes: undefined, adminMetrics: undefined, emojiReactions, userVote, poll, ttsAudio };
+  const enriched = enrichPostLifecycle(value);
+  const anonymous = anonymousIdentity(value, userId);
+  return { ...enriched, ...effective, id: String(value._id || value.id), _id: undefined, votes: undefined, adminMetrics: undefined, emojiReactions, userVote, poll, ttsAudio, anonymousOwner: Boolean(anonymous?.anonymousOwner) };
 };
+
+function postAuthor(post, userId, author) {
+  const masked = anonymousIdentity(post, userId);
+  return masked?.author || publicIdentity(author);
+}
 
 export async function getPostForSpeech(postId) {
   if (connected) {
@@ -272,7 +283,7 @@ export async function reactToPost(postId, userId, key) {
     else if (activeCount >= 5) return { limit: true };
     else reaction.users.push(userId);
     await post.save();
-    await post.populate('author', 'displayName handle avatarUrl isAutomated automationPersona');
+    await post.populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore');
     const commentCount = await Comment.countDocuments({ post: post._id });
     return {
       ...serializePost(post, userId),
@@ -292,7 +303,7 @@ export async function reactToPost(postId, userId, key) {
   else reaction.users.push(String(userId));
   return {
     ...serializePost(post, userId),
-    author: publicIdentity(memoryUsers.get(String(post.author))),
+    author: postAuthor(post, userId, memoryUsers.get(String(post.author))),
     commentCount: [...memoryComments.values()].filter(comment => comment.post === post.id).length
   };
 }
@@ -311,7 +322,7 @@ export async function adminUpdatePost(postId, adminId, values) {
       editedAt: new Date(), editedBy: adminId
     };
     await post.save();
-    await post.populate('author', 'displayName handle avatarUrl isAutomated automationPersona');
+    await post.populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore');
     return { ...serializePost(post), author: post.author ? publicIdentity(post.author) : null, adminEditedAt: post.adminMetrics.editedAt };
   }
   const post = memoryPosts.get(String(postId));
@@ -329,29 +340,42 @@ export async function adminUpdatePost(postId, adminId, values) {
 export async function listPosts(userId = '', { trending = false } = {}) {
   if (connected) {
     const sort = trending ? { impressions: -1, alrightVotes: -1, cringeVotes: -1, createdAt: -1 } : { createdAt: -1 };
-    const posts = await Post.find({ guild: null, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).populate('author', 'displayName handle avatarUrl isAutomated automationPersona').lean().exec();
+    const posts = await Post.find({ guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
     const counts = await Comment.aggregate([{ $match: { post: { $in: posts.map(post => post._id) } } }, { $group: { _id: '$post', count: { $sum: 1 } } }]);
     const countMap = new Map(counts.map(item => [String(item._id), item.count]));
     return posts.map(post => ({
       ...serializePost(post, userId),
       commentCount: countMap.get(String(post._id)) || 0,
-      author: post.author ? { ...post.author, id: String(post.author._id), _id: undefined } : null
+      author: postAuthor(post, userId, post.author)
     }));
   }
-  return [...memoryPosts.values()].filter(post => !post.guild && !post.draft && (post.visibility || 'public') === 'public' && (!post.scheduledPublishedAt || new Date(post.scheduledPublishedAt) <= new Date())).sort((a, b) => trending ? ((b.impressions || 0) - (a.impressions || 0) || new Date(b.createdAt) - new Date(a.createdAt)) : new Date(b.createdAt) - new Date(a.createdAt)).map(post => ({
+  return [...memoryPosts.values()].filter(post => !post.guild && !post.anonymous && !post.draft && (post.visibility || 'public') === 'public' && (!post.scheduledPublishedAt || new Date(post.scheduledPublishedAt) <= new Date())).sort((a, b) => trending ? ((b.impressions || 0) - (a.impressions || 0) || new Date(b.createdAt) - new Date(a.createdAt)) : new Date(b.createdAt) - new Date(a.createdAt)).map(post => ({
     ...serializePost(post, userId), commentCount: [...memoryComments.values()].filter(comment => comment.post === post.id).length,
-    author: publicIdentity(memoryUsers.get(String(post.author)))
+    author: postAuthor(post, userId, memoryUsers.get(String(post.author)))
+  }));
+}
+
+export async function listAnonymousPosts(userId = '') {
+  if (connected) {
+    const posts = await Post.find({ guild: null, anonymous: true, anonymousRevealedAt: null, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort({ createdAt: -1 }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean();
+    const counts = await Comment.aggregate([{ $match: { post: { $in: posts.map(post => post._id) } } }, { $group: { _id: '$post', count: { $sum: 1 } } }]);
+    const countMap = new Map(counts.map(item => [String(item._id), item.count]));
+    return posts.map(post => ({ ...serializePost(post, userId), author: postAuthor(post, userId, post.author), commentCount: countMap.get(String(post._id)) || 0 }));
+  }
+  return [...memoryPosts.values()].filter(post => !post.guild && post.anonymous && !post.anonymousRevealedAt && !post.draft && (post.visibility || 'public') === 'public').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(post => ({
+    ...serializePost(post, userId), author: postAuthor(post, userId, memoryUsers.get(String(post.author))),
+    commentCount: [...memoryComments.values()].filter(comment => comment.post === post.id).length
   }));
 }
 
 export async function getPublicPost(postId) {
   if (connected) {
-    const post = await Post.findOne({ _id: postId, guild: null, draft: { $ne: true }, visibility: { $in: ['public', null] } }).populate('author', 'displayName handle avatarUrl').lean();
-    return post ? { ...serializePost(post), author: post.author ? publicIdentity(post.author) : null } : null;
+    const post = await Post.findOne({ _id: postId, guild: null, draft: { $ne: true }, visibility: { $in: ['public', null] } }).populate('author', 'displayName handle avatarUrl cringeScore').lean();
+    return post ? { ...serializePost(post), author: postAuthor(post, '', post.author) } : null;
   }
   const post = memoryPosts.get(String(postId));
   if (!post || post.guild || post.draft || (post.visibility || 'public') !== 'public') return null;
-  return { ...serializePost(post), author: publicIdentity(memoryUsers.get(String(post.author))) };
+  return { ...serializePost(post), author: postAuthor(post, '', memoryUsers.get(String(post.author))) };
 }
 
 export async function listDrafts(userId) {
@@ -454,8 +478,16 @@ const serializeComment = (comment, userId = '') => {
 
 export async function listComments(postId, userId = '') {
   const flat = connected
-    ? (await Comment.find({ post: postId }).sort({ createdAt: 1 }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona').lean().exec()).map(comment => serializeComment(comment, userId))
+    ? (await Comment.find({ post: postId }).sort({ createdAt: 1 }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec()).map(comment => serializeComment(comment, userId))
     : [...memoryComments.values()].filter(comment => comment.post === String(postId)).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map(comment => serializeComment({ ...comment, author: publicUser(memoryUsers.get(comment.author)) }, userId));
+  const sourcePost = connected ? await Post.findById(postId).select('author anonymous anonymousCode anonymousRevealedAt').lean() : memoryPosts.get(String(postId));
+  if (sourcePost?.anonymous && !sourcePost.anonymousRevealedAt) {
+    flat.forEach(comment => {
+      if (String(comment.author?.id || '') === String(sourcePost.author)) {
+        comment.author = { id: '', displayName: sourcePost.anonymousCode || 'SIGNAL', handle: '', avatarUrl: '', anonymous: true };
+      }
+    });
+  }
   const map = new Map(flat.map(comment => [comment.id, comment]));
   const roots = [];
   flat.forEach(comment => { if (comment.parent && map.has(comment.parent)) map.get(comment.parent).replies.push(comment); else roots.push(comment); });
@@ -472,7 +504,7 @@ export async function createComment(postId, authorId, { text, parent = null, gif
     const parentComment = parent ? await Comment.findById(parent) : null;
     const recipient = parentComment?.author || post.author;
     if (String(recipient) !== String(authorId)) await Notification.create({ recipient, actor: authorId, type: parent ? 'reply' : 'comment', post: post._id, text: parent ? 'Someone replied to your Take.' : 'Someone added a Take to your post.' });
-    return serializeComment(await comment.populate('author', 'displayName handle avatarUrl isAutomated automationPersona'), authorId);
+    return serializeComment(await comment.populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore'), authorId);
   }
   if (!memoryPosts.has(String(postId))) return null;
   const comment = { id: crypto.randomUUID(), post: String(postId), author: String(authorId), parent, text, gifUrl, upvotes: [], createdAt: new Date(), updatedAt: new Date() };
@@ -487,7 +519,7 @@ export async function createComment(postId, authorId, { text, parent = null, gif
 
 export async function voteOnComment(commentId, userId) {
   if (connected) {
-    const comment = await Comment.findById(commentId).populate('author', 'displayName handle avatarUrl isAutomated automationPersona');
+    const comment = await Comment.findById(commentId).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore');
     if (!comment) return null;
     const index = comment.upvotes.findIndex(id => String(id) === String(userId));
     if (index >= 0) comment.upvotes.splice(index, 1); else comment.upvotes.push(userId);
@@ -537,22 +569,22 @@ export async function updatePost(postId, authorId, values) {
   return post;
 }
 
-export async function deletePost(postId, authorId) {
+export async function deletePost(postId, authorId, { isAdmin = false } = {}) {
   if (connected) {
-    const post = await Post.findOneAndDelete({ _id: postId, author: authorId }).exec();
+    const post = await Post.findOneAndDelete(isAdmin ? { _id: postId } : { _id: postId, author: authorId }).exec();
     if (post) {
       await Promise.all([
         Comment.deleteMany({ post: postId }), Notification.deleteMany({ post: postId }),
         User.updateMany({}, { $pull: { savedPosts: postId } }),
-        User.findByIdAndUpdate(authorId, { $inc: { points: -10, vibeScore: -10, postCount: -1 } })
+        User.findByIdAndUpdate(post.author, { $inc: { points: -10, vibeScore: -10, postCount: -1 } })
       ]);
     }
     return post;
   }
   const post = memoryPosts.get(String(postId));
-  if (!post || post.author !== String(authorId)) return null;
+  if (!post || (!isAdmin && post.author !== String(authorId))) return null;
   memoryPosts.delete(String(postId));
-  const user = memoryUsers.get(String(authorId)); if (user) { user.points = Math.max(0, (user.points || 0) - 10); user.vibeScore = Math.max(0, (user.vibeScore || 0) - 10); user.postCount = Math.max(0, (user.postCount || 0) - 1); }
+  const user = memoryUsers.get(String(post.author)); if (user) { user.points = Math.max(0, (user.points || 0) - 10); user.vibeScore = Math.max(0, (user.vibeScore || 0) - 10); user.postCount = Math.max(0, (user.postCount || 0) - 1); }
   for (const [id, comment] of memoryComments) if (comment.post === String(postId)) memoryComments.delete(id);
   for (const account of memoryUsers.values()) account.savedPosts = (account.savedPosts || []).filter(id => id !== String(postId));
   return post;
@@ -589,11 +621,11 @@ export async function listSavedPosts(userId) {
   if (!savedIds.length) return [];
   if (connected) {
     const posts = await Post.find({ _id: { $in: savedIds }, draft: { $ne: true } })
-      .populate('author', 'displayName handle avatarUrl isAutomated automationPersona').lean().exec();
-    const byId = new Map(posts.map(post => [String(post._id), { ...serializePost(post, userId), author: post.author ? publicIdentity(post.author) : null }]));
+      .populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
+    const byId = new Map(posts.map(post => [String(post._id), { ...serializePost(post, userId), author: postAuthor(post, userId, post.author) }]));
     return savedIds.map(id => byId.get(String(id))).filter(Boolean);
   }
-  return savedIds.map(id => memoryPosts.get(String(id))).filter(Boolean).map(post => ({ ...serializePost(post, userId), author: publicIdentity(memoryUsers.get(String(post.author))) }));
+  return savedIds.map(id => memoryPosts.get(String(id))).filter(Boolean).map(post => ({ ...serializePost(post, userId), author: postAuthor(post, userId, memoryUsers.get(String(post.author))) }));
 }
 
 const serializeGuild = (guild, userId = '') => {
@@ -650,7 +682,7 @@ async function recordGuildAudit(guildId, actorId, action, details = {}, targetUs
 }
 
 export async function listGuilds(userId = '') {
-  if (connected) return (await Guild.find().sort({ createdAt: -1 }).populate('creator', 'displayName handle avatarUrl').lean()).map(guild => serializeGuild(guild, userId));
+  if (connected) return (await Guild.find().sort({ createdAt: -1 }).populate('creator', 'displayName handle avatarUrl cringeScore').lean()).map(guild => serializeGuild(guild, userId));
   return [...memoryGuilds.values()].map(guild => serializeGuild({ ...guild, creator: memoryUsers.get(guild.creator) }, userId));
 }
 
@@ -663,7 +695,7 @@ export async function createGuild(userId, values) {
     await recordGuildAudit(guild._id, userId, 'guild.created', { name: guild.name });
     return serializeGuild(await guild.populate('creator', 'displayName handle avatarUrl'), userId);
   }
-  const guild = { id: crypto.randomUUID(), creator: String(userId), members: [String(userId)], inviteCode, privacy: 'public', backgroundPattern: 'clean', cardStyle: 'solid', iconShape: 'rounded', seasonalEffect: 'none', customEmojis: [], reactionSet: ['👍', '🔥', '😂', '💀'], landingLayout: ['announcement', 'about', 'rules', 'featured', 'members', 'progress'], welcomeMessage: '', onboardingQuestions: [], guildXp: 0, level: 1, achievements: [], settings: { allowJoinRequests: true, showMemberList: true, allowPerGuildProfiles: true, showOnlineStatus: true }, createdAt: new Date(), ...values };
+  const guild = { id: crypto.randomUUID(), creator: String(userId), members: [String(userId)], inviteCode, privacy: 'public', backgroundPattern: 'clean', cardStyle: 'solid', iconShape: 'rounded', seasonalEffect: 'none', customEmojis: [], reactionSet: ['ðŸ‘', 'ðŸ”¥', 'ðŸ˜‚', 'ðŸ’€'], landingLayout: ['announcement', 'about', 'rules', 'featured', 'members', 'progress'], welcomeMessage: '', onboardingQuestions: [], guildXp: 0, level: 1, achievements: [], settings: { allowJoinRequests: true, showMemberList: true, allowPerGuildProfiles: true, showOnlineStatus: true }, createdAt: new Date(), ...values };
   memoryGuilds.set(guild.id, guild);
   await ensureGuildRoles(guild.id);
   memoryGuildMemberships.set(membershipKey(guild.id, userId), { guild: guild.id, user: String(userId), roleKey: 'owner', status: 'active', joinedAt: new Date() });
@@ -674,7 +706,7 @@ export async function createGuild(userId, values) {
 export async function getGuild(guildId, userId = '') {
   if (connected) {
     if (!mongoose.isValidObjectId(guildId)) return null;
-    const guild = await Guild.findById(guildId).populate('creator', 'displayName handle avatarUrl').lean();
+    const guild = await Guild.findById(guildId).populate('creator', 'displayName handle avatarUrl cringeScore').lean();
     if (!guild) return null;
     const access = await guildAccess(guildId, userId);
     const roles = access?.permissions?.manageRoles ? await ensureGuildRoles(guildId) : [];
@@ -710,12 +742,12 @@ export async function updateGuild(guildId, userId, values) {
 export async function listGuildPosts(guildId, userId) {
   if (!(await isGuildMember(guildId, userId))) return null;
   if (connected) {
-    const posts = await Post.find({ guild: guildId, draft: { $ne: true }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort({ createdAt: -1 }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona').lean();
+    const posts = await Post.find({ guild: guildId, draft: { $ne: true }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort({ createdAt: -1 }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean();
     const counts = await Comment.aggregate([{ $match: { post: { $in: posts.map(post => post._id) } } }, { $group: { _id: '$post', count: { $sum: 1 } } }]);
     const countMap = new Map(counts.map(item => [String(item._id), item.count]));
-    return posts.map(post => ({ ...serializePost(post, userId), commentCount: countMap.get(String(post._id)) || 0, author: post.author ? publicIdentity(post.author) : null }));
+    return posts.map(post => ({ ...serializePost(post, userId), commentCount: countMap.get(String(post._id)) || 0, author: postAuthor(post, userId, post.author) }));
   }
-  return [...memoryPosts.values()].filter(post => post.guild === String(guildId) && !post.draft && (!post.scheduledPublishedAt || new Date(post.scheduledPublishedAt) <= new Date())).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(post => ({ ...serializePost(post, userId), author: publicIdentity(memoryUsers.get(post.author)), commentCount: [...memoryComments.values()].filter(comment => comment.post === post.id).length }));
+  return [...memoryPosts.values()].filter(post => post.guild === String(guildId) && !post.draft && (!post.scheduledPublishedAt || new Date(post.scheduledPublishedAt) <= new Date())).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(post => ({ ...serializePost(post, userId), author: postAuthor(post, userId, memoryUsers.get(post.author)), commentCount: [...memoryComments.values()].filter(comment => comment.post === post.id).length }));
 }
 
 export async function createGuildPost(guildId, userId, values) {
@@ -755,7 +787,7 @@ const serializeGuildMessage = message => {
 
 export async function listGuildMessages(guildId, userId) {
   if (!(await isGuildMember(guildId, userId))) return null;
-  if (connected) return (await GuildMessage.find({ guild: guildId }).sort({ createdAt: 1 }).limit(250).populate('sender', 'displayName handle avatarUrl').lean()).map(serializeGuildMessage);
+  if (connected) return (await GuildMessage.find({ guild: guildId }).sort({ createdAt: 1 }).limit(250).populate('sender', 'displayName handle avatarUrl cringeScore').lean()).map(serializeGuildMessage);
   return memoryGuildMessages.filter(item => item.guild === String(guildId)).map(item => serializeGuildMessage({ ...item, sender: memoryUsers.get(item.sender) }));
 }
 
@@ -898,7 +930,7 @@ export async function updateGuildRole(guildId, userId, roleKey, values) {
 export async function listGuildAudit(guildId, userId) {
   const access = await guildAccess(guildId, userId);
   if (!access?.permissions?.viewAudit) return null;
-  if (connected) return (await GuildAudit.find({ guild: guildId }).sort({ createdAt: -1 }).limit(200).populate('actor targetUser', 'displayName handle avatarUrl').lean()).map(item => ({ ...item, id: String(item._id), actor: publicIdentity(item.actor), targetUser: publicIdentity(item.targetUser), _id: undefined }));
+  if (connected) return (await GuildAudit.find({ guild: guildId }).sort({ createdAt: -1 }).limit(200).populate('actor targetUser', 'displayName handle avatarUrl cringeScore').lean()).map(item => ({ ...item, id: String(item._id), actor: publicIdentity(item.actor), targetUser: publicIdentity(item.targetUser), _id: undefined }));
   return memoryGuildAudits.filter(item => item.guild === String(guildId)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(item => ({ ...item, actor: publicIdentity(memoryUsers.get(item.actor)), targetUser: publicIdentity(memoryUsers.get(item.targetUser)) }));
 }
 
@@ -927,19 +959,19 @@ export async function listLeaderboard(period = 'all', reaction = 'cringe') {
 }
 
 function basedBadge(rank, score) {
-  if (rank === 1 && score > 0) return { name: 'Based Sovereign', icon: '★' };
-  if (rank <= 3 && score > 0) return { name: 'Golden Take', icon: '✦' };
-  if (rank <= 10 && score > 0) return { name: 'Top Voice', icon: '◆' };
-  if (score > 0) return { name: 'Based Contender', icon: '▲' };
-  return { name: 'Unranked Voice', icon: '◇' };
+  if (rank === 1 && score > 0) return { name: 'Based Sovereign', icon: 'â˜…' };
+  if (rank <= 3 && score > 0) return { name: 'Golden Take', icon: 'âœ¦' };
+  if (rank <= 10 && score > 0) return { name: 'Top Voice', icon: 'â—†' };
+  if (score > 0) return { name: 'Based Contender', icon: 'â–²' };
+  return { name: 'Unranked Voice', icon: 'â—‡' };
 }
 
 function cringeBadge(rank, score) {
-  if (rank === 1 && score > 0) return { name: 'Heat Crown', icon: '♛' };
-  if (rank <= 3 && score > 0) return { name: 'Podium Menace', icon: '🔥' };
-  if (rank <= 10 && score > 0) return { name: 'Top Ten Take', icon: '⚡' };
-  if (score > 0) return { name: 'Heat Contender', icon: '◆' };
-  return { name: 'Fresh Face', icon: '◇' };
+  if (rank === 1 && score > 0) return { name: 'Heat Crown', icon: 'â™›' };
+  if (rank <= 3 && score > 0) return { name: 'Podium Menace', icon: 'ðŸ”¥' };
+  if (rank <= 10 && score > 0) return { name: 'Top Ten Take', icon: 'âš¡' };
+  if (score > 0) return { name: 'Heat Contender', icon: 'â—†' };
+  return { name: 'Fresh Face', icon: 'â—‡' };
 }
 
 export async function searchCallout(query) {
@@ -948,10 +980,10 @@ export async function searchCallout(query) {
   if (connected) {
     const [users, posts, guilds] = await Promise.all([
       User.find({ $or: [{ displayName: regex }, { handle: regex }] }).select('displayName handle avatarUrl isAutomated automationPersona vibeScore points').limit(8).lean(),
-      Post.find({ content: regex, guild: null }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona').sort({ createdAt: -1 }).limit(8).lean(),
+      Post.find({ content: regex, guild: null }).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').sort({ createdAt: -1 }).limit(8).lean(),
       Guild.find({ $or: [{ name: regex }, { description: regex }] }).limit(8).lean()
     ]);
-    return { users: users.map(publicIdentity), posts: posts.map(post => ({ ...serializePost(post), author: post.author ? publicIdentity(post.author) : null })), guilds: guilds.map(serializeGuild) };
+    return { users: users.map(publicIdentity), posts: posts.map(post => ({ ...serializePost(post), author: postAuthor(post, '', post.author) })), guilds: guilds.map(serializeGuild) };
   }
   return {
     users: [...memoryUsers.values()].filter(user => regex.test(user.displayName) || regex.test(user.handle)).slice(0, 8).map(publicIdentity),
@@ -971,7 +1003,7 @@ export async function listNotifications(userId) {
     if (mute.scopeType === 'guild') return mute.scopeId === String(item.guild?._id || item.guild || '');
     return false;
   });
-  if (connected) return (await Notification.find({ recipient: userId }).sort({ createdAt: -1 }).limit(100).populate('actor', 'displayName handle avatarUrl isAutomated automationPersona').lean()).filter(item => !hidden(item)).map(item => ({ ...item, id: String(item._id), _id: undefined, category: categoryFor(item.type), actor: item.actor ? publicIdentity(item.actor) : null, post: item.post ? String(item.post) : null, guild: item.guild ? String(item.guild) : null }));
+  if (connected) return (await Notification.find({ recipient: userId }).sort({ createdAt: -1 }).limit(100).populate('actor', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean()).filter(item => !hidden(item)).map(item => ({ ...item, id: String(item._id), _id: undefined, category: categoryFor(item.type), actor: item.actor ? publicIdentity(item.actor) : null, post: item.post ? String(item.post) : null, guild: item.guild ? String(item.guild) : null }));
   return memoryNotifications.filter(item => item.recipient === String(userId) && !hidden(item)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(item => ({ ...item, category: categoryFor(item.type), actor: publicIdentity(item.actor) }));
 }
 

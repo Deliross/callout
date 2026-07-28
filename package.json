@@ -11,7 +11,8 @@
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
     "test": "node --test",
-    "migrate:creator": "node scripts/migrate-creator-features.mjs"
+    "migrate:creator": "node scripts/migrate-creator-features.mjs",
+    "migrate:big-patch": "node scripts/migrate-big-patch.mjs"
   },
   "dependencies": {
     "@google-analytics/data": "^6.1.0",

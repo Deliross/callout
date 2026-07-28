@@ -127,6 +127,8 @@ export const schemas = {
     category: Joi.string().valid('Movies', 'Music', 'Entertainment', 'Games', 'Life').required(),
     contentType: Joi.string().valid('text', 'image', 'video', 'gif', 'poll').default('text'),
     visibility: Joi.string().valid('public', 'guild', 'friends').default('public'),
+    anonymous: Joi.boolean().default(false),
+    topic: recordId.allow(null, '').default(null),
     draft: Joi.boolean().default(false),
     scheduledPublishedAt: Joi.date().iso().allow(null).default(null),
     topics: Joi.array().max(5).items(plain(40)).default([]),
@@ -205,6 +207,62 @@ export const schemas = {
   friend: Joi.object({ userId: recordId.required() }),
   message: Joi.object({ recipient: plain(254).required(), message: plain(2000).required() }),
   report: Joi.object({ reason: Joi.string().valid('spam', 'harassment', 'offensive', 'other').required(), details: plain(500).allow('') })
+  ,
+  defense: Joi.object({ content: plain(10000).min(20).required() }),
+  redemptionVote: Joi.object({ value: Joi.string().valid('redeemed', 'still_hot').required() }),
+  predictionWager: Joi.object({
+    choice: Joi.string().valid('alright', 'cringe').required(),
+    amount: Joi.number().integer().min(5).max(25).required()
+  }),
+  topic: Joi.object({
+    title: plain(100).required(),
+    slug: Joi.string().lowercase().pattern(/^[a-z0-9-]{3,120}$/).allow('').default(''),
+    description: plain(500).allow('').default(''),
+    rules: plain(1000).allow('').default(''),
+    artworkUrl: optionalBanner,
+    accentColor: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/).default('#ff4713'),
+    startsAt: Joi.date().iso().required(),
+    endsAt: Joi.date().iso().greater(Joi.ref('startsAt')).required(),
+    featured: Joi.boolean().default(true)
+  }),
+  topicUpdate: Joi.object({
+    title: plain(100), description: plain(500).allow(''), rules: plain(1000).allow(''), artworkUrl: optionalBanner,
+    accentColor: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/), startsAt: Joi.date().iso(), endsAt: Joi.date().iso(),
+    featured: Joi.boolean(), state: Joi.string().valid('scheduled', 'live', 'ended', 'vaulted')
+  }).min(1),
+  pinboardEntry: Joi.object({
+    text: plain(2000).allow('').default(''),
+    parent: recordId.allow(null, '').default(null),
+    attachments: Joi.array().max(4).items(Joi.object({
+      type: Joi.string().valid('image', 'gif', 'link').required(),
+      url: Joi.string().max(2_800_000).pattern(/^(https:\/\/|data:image\/(png|jpeg|gif|webp);base64,)/i).required(),
+      alt: plain(120).allow('').default('')
+    })).default([])
+  }).custom((value, helpers) => value.text || value.attachments.length ? value : helpers.message({ custom: 'A Pinboard message needs text or an attachment.' })),
+  battle: Joi.object({
+    title: plain(100).required(),
+    guild: recordId.allow(null, '').default(null),
+    size: Joi.number().valid(4, 8).required(),
+    status: Joi.string().valid('draft', 'live').default('live'),
+    entries: Joi.array().items(Joi.object({ label: plain(100).required(), imageUrl: optionalBanner })).required()
+  }).custom((value, helpers) => value.entries.length === value.size ? value : helpers.message({ custom: 'Battle entry count must match its size.' })),
+  battleVote: Joi.object({
+    round: Joi.number().integer().min(1).max(8).required(),
+    match: Joi.number().integer().min(1).max(32).required(),
+    seed: Joi.number().integer().min(1).max(8).required()
+  }),
+  aboutUpdate: Joi.object({
+    title: plain(120).required(), body: plain(4000).required(),
+    label: Joi.string().valid('building', 'shipped', 'milestone', 'coming_soon').default('building'),
+    pinned: Joi.boolean().default(false), order: Joi.number().integer().min(0).max(1000).default(0)
+  }),
+  aboutUpdatePatch: Joi.object({
+    title: plain(120), body: plain(4000), label: Joi.string().valid('building', 'shipped', 'milestone', 'coming_soon'),
+    pinned: Joi.boolean(), order: Joi.number().integer().min(0).max(1000)
+  }).min(1),
+  staffRole: Joi.object({ staffRole: Joi.string().valid('member', 'moderator', 'admin').required() }),
+  featureControl: Joi.object({ enabled: Joi.boolean().required() }),
+  adminTokenAdjustment: Joi.object({ amount: Joi.number().integer().min(-100000).max(100000).invalid(0).required(), reason: plain(240).required() })
 };
 
 export function validate(schema) {

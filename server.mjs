@@ -16,6 +16,15 @@ import { botStatus, initializeBots, runBotCycle, setBotEnabled } from './server/
 import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
 import {
+  adjustVibeTokens, claimDailyTokens, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
+  deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
+  listFeatureControls, listStaff, listTopics, openPrediction, openRedemption,
+  placePredictionWager, postAllowsWrites, commentAllowsWrites, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
+  setFeatureControl, setStaffRole, submitDefense, topicAllowsWrites, updateAboutUpdate, updateTopic, voteBattle, voteRedemption,
+  featureEnabled,
+  walletSummary
+} from './server/bigPatch.mjs';
+import {
   ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies, comparePassword, createPasswordResetToken,
   hashPassword, optionalAuth, requireAuth, schemas, setAuthCookies, signAccessToken, signRefreshToken,
   validate, verifyRefreshToken
@@ -23,7 +32,7 @@ import {
 import {
   acceptFriendRequest, canAccessPost, connectDatabase, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteComment, deletePost,
   findUserByEmail, findUserByGoogleId, findUserById, getGuild, getPostForSpeech, getPublicProfile, getPublicPost, joinGuildByInvite, listComments, listFriends, listGuildAudit, listGuildMembers, listGuildMessages, listGuildPosts, listGuilds, listLeaderboard, listMessages,
-  deleteNotificationMute, listDrafts, listFeatureIdeas, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, searchCallout, setNotificationMute,
+  deleteNotificationMute, listAnonymousPosts, listDrafts, listFeatureIdeas, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, searchCallout, setNotificationMute,
   savePostSpeech, toggleGuildMembership, toggleSavedPost, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
 } from './server/repository.mjs';
 
@@ -33,10 +42,15 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const app = express();
 const messageStreams = new Map();
-const requireFeature = name => (_req, res, next) => featureFlags[name] ? next() : res.status(404).json({ error: 'This feature is not enabled yet.' });
+const requireFeature = name => async (_req, res, next) => {
+  try { return await featureEnabled(name) ? next() : res.status(404).json({ error: 'This feature is not enabled yet.' }); }
+  catch (error) { next(error); }
+};
 const adminEmails = () => new Set(String(process.env.ADMIN_EMAILS || '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean));
-const isAdminAccount = user => Boolean(user?.email && adminEmails().has(String(user.email).toLowerCase()));
-const accountPayload = user => ({ ...publicUser(user), isAdmin: isAdminAccount(user) });
+const staffRank = role => ({ member: 0, moderator: 1, admin: 2, owner: 3 }[role] || 0);
+const effectiveStaffRole = user => user?.email && adminEmails().has(String(user.email).toLowerCase()) ? 'owner' : (user?.staffRole || 'member');
+const isAdminAccount = user => staffRank(effectiveStaffRole(user)) >= 2;
+const accountPayload = user => ({ ...publicUser(user), staffRole: effectiveStaffRole(user), isAdmin: isAdminAccount(user) });
 
 async function requireAdmin(req, res, next) {
   try {
@@ -46,6 +60,30 @@ async function requireAdmin(req, res, next) {
     next();
   } catch (error) { next(error); }
 }
+
+const requireStaff = minimum => async (req, res, next) => {
+  try {
+    const user = await findUserById(req.userId);
+    if (staffRank(effectiveStaffRole(user)) < staffRank(minimum)) return res.status(403).json({ error: 'Staff permission required.' });
+    req.staffUser = user;
+    req.staffRole = effectiveStaffRole(user);
+    next();
+  } catch (error) { next(error); }
+};
+const requireModerator = requireStaff('moderator');
+const requireOwner = requireStaff('owner');
+const requireWritablePost = async (req, res, next) => {
+  try { return await postAllowsWrites(req.params.id) ? next() : res.status(423).json({ error: 'This Topic is now a read-only Time Vault.' }); }
+  catch (error) { next(error); }
+};
+const requireWritableCommentPost = async (req, res, next) => {
+  try { return await postAllowsWrites(req.body.postId) ? next() : res.status(423).json({ error: 'This Topic is now a read-only Time Vault.' }); }
+  catch (error) { next(error); }
+};
+const requireWritableComment = async (req, res, next) => {
+  try { return await commentAllowsWrites(req.params.id) ? next() : res.status(423).json({ error: 'This Topic is now a read-only Time Vault.' }); }
+  catch (error) { next(error); }
+};
 
 function pushMessageUpdate(userId) {
   for (const response of messageStreams.get(String(userId)) || []) response.write(`event: messages\ndata: ${JSON.stringify({ updated: true })}\n\n`);
@@ -131,7 +169,69 @@ app.get('/api/health', (_req, res) => {
   const healthy = process.env.NODE_ENV !== 'production' || databaseMode() === 'mongodb';
   res.status(healthy ? 200 : 503).json({ ok: healthy, database: databaseMode(), googleOAuth: googleConfigured, analyticsTracking: /^G-[A-Z0-9]+$/i.test(process.env.GA_MEASUREMENT_ID || ''), analyticsDashboard: analyticsDataConfigured(), ads: /^ca-pub-\d{10,}$/.test(process.env.ADSENSE_CLIENT_ID || '') });
 });
-app.get('/api/features', (_req, res) => res.json({ features: featureFlags }));
+app.get('/api/features', async (_req, res, next) => {
+  try { res.json({ features: Object.fromEntries((await listFeatureControls()).map(item => [item.key, item.enabled])) }); } catch (error) { next(error); }
+});
+app.get('/api/about', async (_req, res, next) => {
+  try { res.json(await getAbout()); } catch (error) { next(error); }
+});
+app.post('/api/admin/about', requireFeature('aboutWall'), requireAuth, requireAdmin, validate(schemas.aboutUpdate), async (req, res, next) => {
+  try { res.status(201).json({ update: await createAboutUpdate(req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.patch('/api/admin/about/:id', requireFeature('aboutWall'), requireAuth, requireAdmin, validate(schemas.aboutUpdatePatch), async (req, res, next) => {
+  try { const update = await updateAboutUpdate(req.userId, req.params.id, req.body); if (!update) return res.status(404).json({ error: 'Update not found.' }); res.json({ update }); } catch (error) { next(error); }
+});
+app.delete('/api/admin/about/:id', requireFeature('aboutWall'), requireAuth, requireAdmin, async (req, res, next) => {
+  try { if (!(await deleteAboutUpdate(req.userId, req.params.id))) return res.status(404).json({ error: 'Update not found.' }); res.status(204).end(); } catch (error) { next(error); }
+});
+
+app.get('/api/topics', requireFeature('topics'), optionalAuth, async (req, res, next) => {
+  try { res.json({ topics: await listTopics({ includeScheduled: Boolean(req.userId) }) }); } catch (error) { next(error); }
+});
+app.get('/api/topics/:id', requireFeature('topics'), optionalAuth, async (req, res, next) => {
+  try { const topic = await getTopic(req.params.id); if (!topic) return res.status(404).json({ error: 'Topic not found.' }); res.json({ topic }); } catch (error) { next(error); }
+});
+app.get('/api/vaults', requireFeature('topics'), optionalAuth, async (_req, res, next) => {
+  try { res.json({ vaults: (await listTopics({ includeScheduled: false })).filter(topic => topic.state === 'vaulted') }); } catch (error) { next(error); }
+});
+app.post('/api/topics', requireFeature('topics'), requireAuth, requireAdmin, validate(schemas.topic), async (req, res, next) => {
+  try { res.status(201).json({ topic: await createTopic(req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.patch('/api/topics/:id', requireFeature('topics'), requireAuth, requireAdmin, validate(schemas.topicUpdate), async (req, res, next) => {
+  try { const topic = await updateTopic(req.userId, req.params.id, req.body); if (!topic) return res.status(404).json({ error: 'Topic not found.' }); res.json({ topic }); } catch (error) { next(error); }
+});
+
+app.get('/api/battles', requireFeature('battles'), optionalAuth, async (req, res, next) => {
+  try { res.json({ battles: await listBattles(req.userId || '') }); } catch (error) { next(error); }
+});
+app.post('/api/battles', requireFeature('battles'), requireAuth, requireAdmin, validate(schemas.battle), async (req, res, next) => {
+  try { res.status(201).json({ battle: await createBattle(req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.post('/api/battles/:id/vote', requireFeature('battles'), requireAuth, validate(schemas.battleVote), async (req, res, next) => {
+  try { const battle = await voteBattle(req.params.id, req.userId, req.body.round, req.body.match, req.body.seed); if (!battle) return res.status(404).json({ error: 'Battle match is unavailable.' }); res.json({ battle }); } catch (error) { next(error); }
+});
+
+app.get('/api/admin/staff', requireAuth, requireAdmin, async (_req, res, next) => {
+  try { res.json({ staff: await listStaff() }); } catch (error) { next(error); }
+});
+app.patch('/api/admin/staff/:id', requireAuth, requireOwner, validate(schemas.staffRole), async (req, res, next) => {
+  try { const user = await setStaffRole(req.userId, req.params.id, req.body.staffRole); if (!user) return res.status(409).json({ error: 'Owner accounts cannot be changed.' }); res.json({ user }); } catch (error) { next(error); }
+});
+app.get('/api/admin/audit', requireAuth, requireAdmin, async (_req, res, next) => {
+  try { res.json({ audit: await listPlatformAudit() }); } catch (error) { next(error); }
+});
+app.get('/api/admin/features', requireAuth, requireAdmin, async (_req, res, next) => {
+  try { res.json({ features: await listFeatureControls() }); } catch (error) { next(error); }
+});
+app.patch('/api/admin/features/:key', requireAuth, requireOwner, validate(schemas.featureControl), async (req, res, next) => {
+  try { const feature = await setFeatureControl(req.userId, req.params.key, req.body.enabled); if (!feature) return res.status(404).json({ error: 'Feature not found.' }); res.json({ feature }); } catch (error) { next(error); }
+});
+app.get('/api/admin/anonymous/:id', requireFeature('anonymous'), requireAuth, requireModerator, async (req, res, next) => {
+  try { const identity = await inspectAnonymousPost(req.params.id, req.userId); if (!identity) return res.status(404).json({ error: 'Anonymous post not found.' }); res.set('Cache-Control', 'no-store'); res.json({ identity }); } catch (error) { next(error); }
+});
+app.post('/api/admin/wallet/:id', requireFeature('predictions'), requireAuth, requireAdmin, validate(schemas.adminTokenAdjustment), async (req, res, next) => {
+  try { const wallet = await adjustVibeTokens(req.userId, req.params.id, req.body.amount, req.body.reason); if (!wallet) return res.status(400).json({ error: 'Adjustment would create an invalid balance.' }); res.json({ wallet }); } catch (error) { next(error); }
+});
 app.post('/api/embeds/preview', embedLimiter, requireAuth, validate(schemas.embedPreview), async (req, res, next) => {
   try { res.json({ embed: await buildExternalEmbed(req.body.url) }); }
   catch (error) { if (/Paste a|supports|unavailable|source returned/.test(error.message)) return res.status(400).json({ error: error.message }); next(error); }
@@ -155,6 +255,22 @@ app.patch('/api/admin/posts/:id', requireAuth, requireAdmin, validate(schemas.ad
     const post = await adminUpdatePost(req.params.id, req.userId, req.body);
     if (!post) return res.status(404).json({ error: 'Post not found.' });
     res.json({ post });
+  } catch (error) { next(error); }
+});
+app.delete('/api/admin/posts/:id', requireAuth, requireModerator, async (req, res, next) => {
+  try {
+    const post = await deletePost(req.params.id, req.userId, { isAdmin: true });
+    if (!post) return res.status(404).json({ error: 'Post not found.' });
+    await recordPlatformAudit(req.userId, 'moderation.post_deleted', 'post', req.params.id);
+    res.status(204).end();
+  } catch (error) { next(error); }
+});
+app.delete('/api/admin/comments/:id', requireAuth, requireModerator, async (req, res, next) => {
+  try {
+    const result = await deleteComment(req.params.id, req.userId, { isAdmin: true });
+    if (result.status === 'not_found') return res.status(404).json({ error: 'Take not found.' });
+    await recordPlatformAudit(req.userId, 'moderation.take_deleted', 'comment', req.params.id, { deletedCount: result.deletedCount });
+    res.json({ deleted: true, deletedCount: result.deletedCount, postId: result.postId });
   } catch (error) { next(error); }
 });
 
@@ -265,6 +381,12 @@ app.patch('/api/profile', requireAuth, validate(schemas.profile), async (req, re
 app.get('/api/posts', optionalAuth, async (req, res, next) => {
   try { res.json({ posts: await listPosts(req.userId) }); } catch (error) { next(error); }
 });
+app.get('/api/posts/anonymous', requireFeature('anonymous'), optionalAuth, async (req, res, next) => {
+  try { res.json({ posts: await listAnonymousPosts(req.userId) }); } catch (error) { next(error); }
+});
+app.get('/api/anonymous', requireFeature('anonymous'), optionalAuth, async (req, res, next) => {
+  try { res.json({ posts: await listAnonymousPosts(req.userId) }); } catch (error) { next(error); }
+});
 app.get('/api/ideas', async (req, res, next) => {
   try { const mood = ['electric','chaotic','soft','dark','wild'].includes(req.query.mood) ? req.query.mood : ''; res.json({ ideas: await listFeatureIdeas(mood) }); } catch (error) { next(error); }
 });
@@ -303,16 +425,20 @@ app.post('/api/admin/tts-settings', requireAuth, requireAdmin, validate(schemas.
   try { res.json({ setup: await saveTtsSettings(req.body, req.userId) }); } catch (error) { next(error); }
 });
 app.post('/api/posts', requireAuth, validate(schemas.post), async (req, res, next) => {
-  try { res.status(201).json({ post: await createPost(req.userId, req.body) }); } catch (error) { next(error); }
+  try {
+    if (req.body.anonymous && !(await featureEnabled('anonymous'))) return res.status(404).json({ error: 'Anonymous posting is not enabled.' });
+    if (req.body.topic && !(await topicAllowsWrites(req.body.topic))) return res.status(423).json({ error: 'This Topic is not accepting new posts.' });
+    res.status(201).json({ post: await createPost(req.userId, req.body) });
+  } catch (error) { next(error); }
 });
-app.patch('/api/posts/:id', requireAuth, validate(schemas.post), async (req, res, next) => {
+app.patch('/api/posts/:id', requireAuth, requireWritablePost, validate(schemas.post), async (req, res, next) => {
   try {
     const post = await updatePost(req.params.id, req.userId, req.body);
     if (!post) return res.status(404).json({ error: 'Post not found or not owned by you.' });
     res.json({ post });
   } catch (error) { next(error); }
 });
-app.delete('/api/posts/:id', requireAuth, async (req, res, next) => {
+app.delete('/api/posts/:id', requireAuth, requireWritablePost, async (req, res, next) => {
   try {
     const post = await deletePost(req.params.id, req.userId);
     if (!post) return res.status(404).json({ error: 'Post not found or not owned by you.' });
@@ -343,7 +469,7 @@ app.post('/api/posts/:id/tts', ttsLimiter, requireAuth, requireAdmin, validate(s
     });
   } catch (error) { next(error); }
 });
-app.post('/api/posts/:id/vote', requireAuth, validate(schemas.vote), async (req, res, next) => {
+app.post('/api/posts/:id/vote', requireAuth, requireWritablePost, validate(schemas.vote), async (req, res, next) => {
   try {
     if (!(await canAccessPost(req.params.id, req.userId))) return res.status(403).json({ error: 'This post is not available to you.' });
     const post = await voteOnPost(req.params.id, req.userId, req.body.value);
@@ -352,7 +478,7 @@ app.post('/api/posts/:id/vote', requireAuth, validate(schemas.vote), async (req,
     res.json({ post });
   } catch (error) { next(error); }
 });
-app.post('/api/posts/:id/reactions', requireAuth, validate(schemas.emojiReaction), async (req, res, next) => {
+app.post('/api/posts/:id/reactions', requireAuth, requireWritablePost, validate(schemas.emojiReaction), async (req, res, next) => {
   try {
     if (!(await canAccessPost(req.params.id, req.userId))) return res.status(403).json({ error: 'This post is not available to you.' });
     const post = await reactToPost(req.params.id, req.userId, req.body.key);
@@ -361,7 +487,53 @@ app.post('/api/posts/:id/reactions', requireAuth, validate(schemas.emojiReaction
     res.json({ post });
   } catch (error) { next(error); }
 });
-app.post('/api/posts/:id/poll-vote', requireFeature('richComposer'), requireAuth, validate(schemas.pollVote), async (req, res, next) => {
+app.post('/api/posts/:id/reveal', requireFeature('anonymous'), requireAuth, requireWritablePost, async (req, res, next) => {
+  try { const result = await revealAnonymousPost(req.params.id, req.userId); if (!result) return res.status(404).json({ error: 'Anonymous post not found or not owned by you.' }); res.json(result); } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/prediction', requireFeature('predictions'), requireAuth, requireWritablePost, async (req, res, next) => {
+  try { const post = await openPrediction(req.params.id, req.userId); if (!post) return res.status(409).json({ error: 'Only the author can open one prediction on this post.' }); res.json({ post }); } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/prediction/wager', requireFeature('predictions'), requireAuth, requireWritablePost, validate(schemas.predictionWager), async (req, res, next) => {
+  try {
+    const result = await placePredictionWager(req.params.id, req.userId, req.body.choice, req.body.amount);
+    if (!result) return res.status(404).json({ error: 'Prediction not found.' });
+    if (result.closed) return res.status(409).json({ error: 'This prediction is closed.' });
+    if (result.limit) return res.status(429).json({ error: 'Daily wager limit reached.' });
+    if (result.funds) return res.status(400).json({ error: 'Not enough Vibe Tokens.' });
+    if (result.duplicate) return res.status(409).json({ error: 'You already predicted this result.' });
+    res.status(201).json(result);
+  } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/defense', requireFeature('postStates'), requireAuth, requireWritablePost, validate(schemas.defense), async (req, res, next) => {
+  try {
+    const post = await submitDefense(req.params.id, req.userId, req.body.content);
+    if (!post) return res.status(404).json({ error: 'Post not found.' });
+    if (post.ineligible) return res.status(409).json({ error: 'Defense is not available for this post.' });
+    res.json({ post });
+  } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/redemption', requireFeature('postStates'), requireAuth, requireWritablePost, async (req, res, next) => {
+  try {
+    const post = await openRedemption(req.params.id, req.userId);
+    if (!post) return res.status(404).json({ error: 'Post not found.' });
+    if (post.ineligible) return res.status(409).json({ error: 'Submit a Defense before opening Redemption.' });
+    res.json({ post });
+  } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/redemption/vote', requireFeature('postStates'), requireAuth, requireWritablePost, validate(schemas.redemptionVote), async (req, res, next) => {
+  try {
+    const post = await voteRedemption(req.params.id, req.userId, req.body.value);
+    if (!post || post.closed) return res.status(409).json({ error: 'This Redemption vote is closed.' });
+    res.json({ post });
+  } catch (error) { next(error); }
+});
+app.get('/api/wallet', requireFeature('predictions'), requireAuth, async (req, res, next) => {
+  try { res.json({ wallet: await walletSummary(req.userId) }); } catch (error) { next(error); }
+});
+app.post('/api/wallet/daily-claim', requireFeature('predictions'), requireAuth, async (req, res, next) => {
+  try { res.json({ wallet: await claimDailyTokens(req.userId) }); } catch (error) { next(error); }
+});
+app.post('/api/posts/:id/poll-vote', requireFeature('richComposer'), requireAuth, requireWritablePost, validate(schemas.pollVote), async (req, res, next) => {
   try {
     if (!(await canAccessPost(req.params.id, req.userId))) return res.status(403).json({ error: 'This poll is not available to you.' });
     const post = await voteOnPoll(req.params.id, req.userId, req.body.optionId);
@@ -381,7 +553,7 @@ app.get('/api/posts/:id/comments', optionalAuth, async (req, res, next) => {
   try { if (!(await canAccessPost(req.params.id, req.userId))) return res.status(403).json({ error: 'This discussion is members-only.' }); res.json({ comments: await listComments(req.params.id, req.userId) }); } catch (error) { next(error); }
 });
 
-app.post('/api/comments', requireAuth, validate(schemas.comment), async (req, res, next) => {
+app.post('/api/comments', requireAuth, requireWritableCommentPost, validate(schemas.comment), async (req, res, next) => {
   try {
     if (!(await canAccessPost(req.body.postId, req.userId))) return res.status(403).json({ error: 'This discussion is members-only.' });
     const comment = await createComment(req.body.postId, req.userId, req.body);
@@ -389,19 +561,21 @@ app.post('/api/comments', requireAuth, validate(schemas.comment), async (req, re
     res.status(201).json({ comment });
   } catch (error) { next(error); }
 });
-app.post('/api/comments/:id/vote', requireAuth, async (req, res, next) => {
+app.post('/api/comments/:id/vote', requireAuth, requireWritableComment, async (req, res, next) => {
   try {
     const comment = await voteOnComment(req.params.id, req.userId);
     if (!comment) return res.status(404).json({ error: 'Comment not found.' });
     res.json({ comment });
   } catch (error) { next(error); }
 });
-app.delete('/api/comments/:id', requireAuth, async (req, res, next) => {
+app.delete('/api/comments/:id', requireAuth, requireWritableComment, async (req, res, next) => {
   try {
     const user = await findUserById(req.userId);
-    const result = await deleteComment(req.params.id, req.userId, { isAdmin: isAdminAccount(user) });
+    const canModerate = staffRank(effectiveStaffRole(user)) >= staffRank('moderator');
+    const result = await deleteComment(req.params.id, req.userId, { isAdmin: canModerate });
     if (result.status === 'not_found') return res.status(404).json({ error: 'Take not found.' });
     if (result.status === 'forbidden') return res.status(403).json({ error: 'You can only delete your own Takes.' });
+    if (canModerate) await recordPlatformAudit(req.userId, 'moderation.take_deleted', 'comment', req.params.id, { deletedCount: result.deletedCount });
     res.json({ deleted: true, deletedCount: result.deletedCount, postId: result.postId });
   } catch (error) { next(error); }
 });
@@ -441,6 +615,15 @@ app.get('/api/guilds/:id/messages', requireAuth, async (req, res, next) => {
 });
 app.post('/api/guilds/:id/messages', requireAuth, validate(schemas.guildMessage), async (req, res, next) => {
   try { const message = await createGuildMessage(req.params.id, req.userId, req.body.text); if (!message) return res.status(403).json({ error: 'Join this guild to use its group chat.' }); res.status(201).json({ message }); } catch (error) { next(error); }
+});
+app.get('/api/guilds/:id/pinboard', requireFeature('pinboards'), requireAuth, async (req, res, next) => {
+  try { const board = await listPinboard(req.params.id, req.userId, { archive: req.query.archive === '1' }); if (!board) return res.status(403).json({ error: 'Join this guild to view its Pinboard.' }); res.json({ board }); } catch (error) { next(error); }
+});
+app.post('/api/guilds/:id/pinboard', requireFeature('pinboards'), requireAuth, validate(schemas.pinboardEntry), async (req, res, next) => {
+  try { const entry = await createPinboardEntry(req.params.id, req.userId, req.body); if (!entry) return res.status(403).json({ error: 'Your guild role cannot post to the Pinboard.' }); res.status(201).json({ entry }); } catch (error) { next(error); }
+});
+app.post('/api/guilds/:id/pinboard/reset', requireFeature('pinboards'), requireAuth, async (req, res, next) => {
+  try { const board = await resetPinboard(req.params.id, req.userId); if (!board) return res.status(403).json({ error: 'Only guild staff can reset the Pinboard.' }); res.json({ board }); } catch (error) { next(error); }
 });
 app.post('/api/guilds/:id/membership', requireAuth, async (req, res, next) => {
   try {
@@ -566,6 +749,7 @@ app.get('/vendor/dompurify.min.js', (_req, res) => res.sendFile(path.join(root, 
 app.get('/vendor/html2canvas.min.js', (_req, res) => res.sendFile(path.join(root, 'node_modules', 'html2canvas', 'dist', 'html2canvas.min.js')));
 app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html')));
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
+app.get('/about', (_req, res) => res.redirect('/#about'));
 async function renderIndex(_req, res, next) {
   try {
     let template = await readFile(path.join(root, 'index.html'), 'utf8');
@@ -606,6 +790,9 @@ async function startServer() {
 
   app.listen(port, () => {
     console.log(`Callout is running at http://localhost:${port} (${databaseMode()} store)`);
+    processBigPatchLifecycles().catch(error => console.error(`Big Patch lifecycle failed: ${error.message}`));
+    const lifecycleTimer = setInterval(() => processBigPatchLifecycles().catch(error => console.error(`Big Patch lifecycle failed: ${error.message}`)), 60_000);
+    lifecycleTimer.unref();
     if (process.env.NODE_ENV !== 'production') connectDatabase().catch(error => console.warn(`Database connection failed: ${error.message}`));
     if (process.env.BOTS_ENABLED !== 'false') {
       initializeBots().then(result => console.log(`Automated accounts ready (${result.seededPosts} initial posts created).`)).catch(error => console.error(`Bot initialization failed: ${error.message}`));

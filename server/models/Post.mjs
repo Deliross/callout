@@ -49,6 +49,10 @@ const postSchema = new mongoose.Schema({
   author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   clientRequestId: { type: String, default: '', maxlength: 80 },
   guild: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
+  topic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', default: null, index: true },
+  anonymous: { type: Boolean, default: false, index: true },
+  anonymousCode: { type: String, default: '', maxlength: 24 },
+  anonymousRevealedAt: { type: Date, default: null },
   content: { type: String, default: '', maxlength: 2000 },
   category: { type: String, enum: ['Movies', 'Music', 'Entertainment', 'Games', 'Life'], required: true },
   contentType: { type: String, enum: ['text', 'image', 'video', 'gif', 'poll'], default: 'text' },
@@ -92,7 +96,31 @@ const postSchema = new mongoose.Schema({
     _id: false,
     key: { type: String, enum: ['spark', 'purple_smile', 'based_crown', 'heat', 'micdrop', 'sideeye', 'brainzap', 'popcorn', 'gold_star', 'red_flag', 'diamond', 'ghosted', 'clown', 'tiny_fire', 'skull', 'laugh', 'question', 'loud', 'rare', 'callout', 'fire', 'dead', 'mindblown'], required: true },
     users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
-  }]
+  }],
+  lifecycle: {
+    prediction: {
+      status: { type: String, enum: ['none', 'open', 'locked', 'settled'], default: 'none' },
+      locksAt: { type: Date, default: null },
+      settlesAt: { type: Date, default: null },
+      outcome: { type: String, enum: ['', 'alright', 'cringe', 'refund'], default: '' }
+    },
+    defense: {
+      status: { type: String, enum: ['none', 'eligible', 'submitted'], default: 'none' },
+      content: { type: String, default: '', maxlength: 10000 },
+      submittedAt: { type: Date, default: null },
+      editableUntil: { type: Date, default: null }
+    },
+    redemption: {
+      status: { type: String, enum: ['none', 'open', 'gold', 'silver'], default: 'none' },
+      opensAt: { type: Date, default: null },
+      closesAt: { type: Date, default: null },
+      votes: [{
+        _id: false,
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        value: { type: String, enum: ['redeemed', 'still_hot'] }
+      }]
+    }
+  }
 }, { timestamps: true });
 
 postSchema.index({ author: 1, clientRequestId: 1 }, { unique: true, partialFilterExpression: { clientRequestId: { $type: 'string', $gt: '' } } });

@@ -97,8 +97,17 @@ const state = {
   botAutomation: null,
   analyticsError: '',
   analyticsDays: 28,
+  adminBigPatch: { staff: [], audit: [], features: [] },
   notificationFilter: 'all'
-  ,ideas: [], ideaMood: 'all'
+  ,ideas: [], ideaMood: 'all',
+  anonymousPosts: [],
+  topics: [],
+  battles: [],
+  about: { sections: [], updates: [] },
+  wallet: null,
+  pinboard: { cycle: '', items: [], canManage: false },
+  activeFeedTab: 'For You',
+  expandedPostState: ''
 };
 
 if (storedState?.settings?.appearanceVersion !== 2) {
@@ -106,7 +115,7 @@ if (storedState?.settings?.appearanceVersion !== 2) {
   state.settings.theme = 'light';
 }
 
-const routes = new Set(['home', 'trending', 'guilds', 'guild', 'ideas', 'leaderboards', 'vibe-progress', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'take', 'auth']);
+const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'vibe-progress', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'about', 'take', 'auth']);
 const postReactions = [
   { key: 'spark', face: '✦', label: 'Sparked' },
   { key: 'purple_smile', face: '☻', label: 'Purple smile' },
@@ -400,6 +409,9 @@ function updateHeaderProfile() {
   document.querySelector('#headerName').textContent = profile.displayName;
   document.querySelector('#headerHandle').textContent = profile.handle;
   const avatar = document.querySelector('#headerAvatar');
+  avatar.classList.remove('heat-fresh', 'heat-mild', 'heat-spicy', 'heat-certified', 'heat-firestarter', 'heat-hall');
+  const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser?.id));
+  avatar.classList.add('heat-frame', heatFrameClass(standing?.cringeScore || 0));
   avatar.innerHTML = profile.avatarUrl
     ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.displayName)}" />`
     : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
@@ -451,23 +463,20 @@ function updateAccountChrome() {
   document.querySelector('#railRankNote').textContent = railStanding ? `${Number(railStanding[railScoreKey] || 0).toLocaleString()} ${railKind === 'based' ? 'Based' : 'Hot Take'} ${Number(railStanding[railScoreKey] || 0) === 1 ? 'vote' : 'votes'} received.` : 'Sign in to claim your place.';
   const mini = document.querySelector('#railLeaderboardRows');
   mini.dataset.kind = railKind;
-  mini.innerHTML = railUsers.slice(0, 5).map(user => `<button type="button" data-rail-user="${user.id}"><b>${user.rank}</b><span class="avatar">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.badge?.name || user.handle || '')}</small></span><em>${Number(user[railScoreKey] || 0).toLocaleString()}</em></button>`).join('') || '<p>No ranked users yet.</p>';
+  mini.innerHTML = railUsers.slice(0, 5).map(user => `<button type="button" data-rail-user="${user.id}"><b>${user.rank}</b><span class="avatar heat-frame ${heatFrameClass(user.cringeScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.badge?.name || user.handle || '')}</small></span><em>${Number(user[railScoreKey] || 0).toLocaleString()}</em></button>`).join('') || '<p>No ranked users yet.</p>';
   document.querySelectorAll('[data-leaderboard-kind]').forEach(button => button.classList.toggle('active', button.dataset.leaderboardKind === railKind));
   mini.querySelectorAll('[data-rail-user]').forEach(button => button.addEventListener('click', () => navigate(`user/${button.dataset.railUser}`)));
-  const lifetimeStanding = sessionUser ? state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser.id)) : null;
-  const cringe = cringeMilestone(Number(lifetimeStanding?.cringeScore || 0));
-  document.querySelector('#personalCringeLevel').innerHTML = sessionUser ? `${calloutGlyph('personal')}<span>${escapeHtml(cringe.name)}</span>` : 'Your Heat Level';
-  document.querySelector('#personalCringeMeta').textContent = sessionUser ? `Global #${lifetimeStanding?.rank || '—'} · ${Number(lifetimeStanding?.cringeScore || 0).toLocaleString()} Heat` : 'Sign in to start your public Heat level.';
-  document.querySelector('#personalCringeProgress').style.width = `${cringe.progress}%`;
-  document.querySelector('#personalCringeNext').textContent = sessionUser ? (cringe.level === 6 ? 'Highest level reached' : `${cringe.remaining.toLocaleString()} remaining until the next level`) : 'Progress appears after your first Hot Take vote.';
   renderProfileCringeBadge();
   renderSidebarWidgets();
+  renderLiveMoments();
 }
 
 function renderProfileCringeBadge() {
   const profileId = currentRoute() === 'user' ? state.publicProfile?.id : sessionUser?.id;
   const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(profileId));
   const host = currentRoute() === 'user' ? document.querySelector('.public-user-main') : currentRoute() === 'profile' ? document.querySelector('.profile-identity') : null;
+  const profileAvatar = host?.querySelector('.avatar');
+  if (profileAvatar) profileAvatar.classList.add('heat-frame', heatFrameClass(standing?.cringeScore || state.publicProfile?.cringeScore || 0));
   if (!host || !standing || host.querySelector('.profile-cringe-summary')) return;
   const level = cringeMilestone(Number(standing.cringeScore || 0));
   const badge = document.createElement('button'); badge.type = 'button'; badge.className = 'profile-cringe-summary';
@@ -489,6 +498,18 @@ function renderSidebarWidgets() {
   container.querySelectorAll('[data-widget-move]').forEach(button => button.addEventListener('click', () => { const from = Number(button.dataset.widgetMove); const to = from + Number(button.dataset.direction); [order[from], order[to]] = [order[to], order[from]]; state.settings.widgetOrder = order; persist(); renderSidebarWidgets(); }));
   container.querySelectorAll('[data-widget-guild]').forEach(button => button.addEventListener('click', () => navigate(`guild/${button.dataset.widgetGuild}/public`)));
   container.querySelector('[data-widget-progress]')?.addEventListener('click', () => navigate('vibe-progress'));
+}
+
+function renderLiveMoments() {
+  const container = document.querySelector('#liveMomentRows');
+  if (!container) return;
+  const live = state.topics.filter(topic => topic.state === 'live').slice(0, 3);
+  container.innerHTML = live.length ? live.map(topic => {
+    const remaining = Math.max(0, new Date(topic.endsAt).getTime() - Date.now());
+    const hours = Math.ceil(remaining / 3_600_000);
+    return `<button type="button" data-live-topic="${topic.id}">${topic.artworkUrl ? `<img src="${escapeHtml(topic.artworkUrl)}" alt="" />` : '<span>◉</span>'}<span><strong>${escapeHtml(topic.title)}</strong><small>${hours}h left</small></span><b>LIVE</b></button>`;
+  }).join('') : '<p>Live Topics will appear here.</p>';
+  container.querySelectorAll('[data-live-topic]').forEach(button => button.addEventListener('click', () => navigate(`topics/${button.dataset.liveTopic}`)));
 }
 
 function updateGuildChrome() {
@@ -534,7 +555,9 @@ function mapPost(post) {
     alrightVotes: Number(post.alrightVotes || 0), cringeVotes: Number(post.cringeVotes || 0), impressions: Number(post.impressions || 0),
     userVote: post.userVote || null, emojiReactions: post.emojiReactions || {}, commentCount: Number(post.commentCount || 0), comments: Array.isArray(post.comments) ? post.comments : [],
     ttsAudio: Array.isArray(post.ttsAudio) ? post.ttsAudio : [], viralVideo: post.viralVideo || { milestones: [100, 500, 1000], reached: [], next: null },
-    createdAt: new Date(post.createdAt || Date.now()).getTime(), publishing: Boolean(post.publishing)
+    createdAt: new Date(post.createdAt || Date.now()).getTime(), publishing: Boolean(post.publishing),
+    anonymous: Boolean(post.anonymous), anonymousCode: post.anonymousCode || '', anonymousOwner: Boolean(post.anonymousOwner), anonymousRevealedAt: post.anonymousRevealedAt || null,
+    lifecycle: post.lifecycle || { active: 'none' }, authorHeatTier: post.author?.heatTier || null, topic: post.topic || null
   };
 }
 
@@ -549,13 +572,30 @@ async function hydratePosts() {
 
 async function hydrateApp() {
   await hydrateSession();
-  await Promise.all([hydratePosts(), hydrateGuilds(), hydrateLeaderboard(), hydrateTrending(), hydrateIdeas(), hydrateAccountData()]);
+  await Promise.all([hydratePosts(), hydrateGuilds(), hydrateLeaderboard(), hydrateTrending(), hydrateIdeas(), hydrateBigPatch(), hydrateAccountData()]);
   if (currentRoute() === 'take') await hydrateTake(activeTake());
   if (currentRoute() === 'guild') await hydrateGuildDetail();
   if (currentRoute() === 'user') await hydratePublicProfile();
   if (currentRoute() === 'profile') await hydrateOwnProfile();
   if (currentRoute() === 'analytics') await hydrateAnalytics();
   renderRoute();
+}
+
+async function hydrateBigPatch() {
+  const requests = [
+    apiFetch('/api/posts/anonymous', {}, false),
+    apiFetch('/api/topics', {}, false),
+    apiFetch('/api/battles', {}, false),
+    apiFetch('/api/about', {}, false)
+  ];
+  if (sessionUser) requests.push(apiFetch('/api/wallet'));
+  const [anonymous, topics, battles, about, wallet] = await Promise.allSettled(requests);
+  if (anonymous.status === 'fulfilled') state.anonymousPosts = (anonymous.value.posts || []).map(mapPost);
+  if (topics.status === 'fulfilled') state.topics = topics.value.topics || [];
+  if (battles.status === 'fulfilled') state.battles = battles.value.battles || [];
+  if (about.status === 'fulfilled') state.about = about.value;
+  if (wallet?.status === 'fulfilled') state.wallet = wallet.value.wallet;
+  renderLiveMoments();
 }
 
 async function hydrateGuilds() { try { state.guilds = (await apiFetch('/api/guilds', {}, false)).guilds || []; updateGuildChrome(); } catch (error) { console.error(error); } }
@@ -588,6 +628,10 @@ async function hydrateGuildDetail() {
       if (state.activeGuild.permissions?.viewAudit) requests.push(apiFetch(`/api/guilds/${id}/audit`));
       const [posts, messages, members, audit] = await Promise.all(requests);
       state.guildPosts = (posts.posts || []).map(mapPost); state.guildMessages = messages.messages || []; state.guildMembers = members.members || []; state.guildAudit = audit?.audit || [];
+      if (location.hash.split('/')[2] === 'pinboard') {
+        const board = await apiFetch(`/api/guilds/${id}/pinboard`);
+        state.pinboard = board.board;
+      }
     } else { state.guildPosts = []; state.guildMessages = []; }
   } catch (error) { state.activeGuild = null; showToast(error.message); }
 }
@@ -604,8 +648,8 @@ async function hydrateAnalytics() {
   if (!sessionUser?.isAdmin) { state.analytics = null; state.botAutomation = null; state.analyticsError = ''; return; }
   try {
     state.analyticsError = '';
-    const [analytics, automation] = await Promise.all([apiFetch(`/api/analytics/summary?days=${state.analyticsDays}`), apiFetch('/api/admin/bots')]);
-    state.analytics = analytics.analytics; state.botAutomation = automation;
+    const [analytics, automation, staff, audit, features] = await Promise.all([apiFetch(`/api/analytics/summary?days=${state.analyticsDays}`), apiFetch('/api/admin/bots'), apiFetch('/api/admin/staff'), apiFetch('/api/admin/audit'), apiFetch('/api/admin/features')]);
+    state.analytics = analytics.analytics; state.botAutomation = automation; state.adminBigPatch = { staff: staff.staff || [], audit: audit.audit || [], features: features.features || [] };
   } catch (error) { state.analytics = null; state.analyticsError = error.message; }
 }
 async function hydrateAccountData() {
@@ -643,14 +687,22 @@ function currentUserId() {
   return sessionUser?.id || 'local-user';
 }
 
+function heatFrameClass(scoreOrTier = 0) {
+  if (typeof scoreOrTier === 'object' && scoreOrTier?.className) return scoreOrTier.className;
+  return `heat-${['fresh', 'mild', 'spicy', 'certified', 'firestarter', 'hall'][Math.max(0, cringeMilestone(Number(scoreOrTier || 0)).level - 1)]}`;
+}
+
 function avatarMarkup(className = '') {
-  const frame = `avatar-frame-${escapeHtml(state.profile.avatarFrame || 'none')}`;
-  return state.profile.avatarUrl ? `<span class="avatar ${className} ${frame}"><img src="${escapeHtml(state.profile.avatarUrl)}" alt="" /></span>` : `<span class="avatar ${className} ${frame}">🦸🏻</span>`;
+  const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser?.id));
+  const frame = heatFrameClass(standing?.cringeScore || 0);
+  return state.profile.avatarUrl ? `<span class="avatar heat-frame ${className} ${frame}"><img src="${escapeHtml(state.profile.avatarUrl)}" alt="" /></span>` : `<span class="avatar heat-frame ${className} ${frame}">🦸🏻</span>`;
 }
 
 function postAvatarMarkup(post) {
-  if (post.authorAvatarUrl) return `<span class="avatar take-avatar"><img src="${escapeHtml(post.authorAvatarUrl)}" alt="" /></span>`;
-  return `<span class="avatar take-avatar">${escapeHtml((post.authorName || 'C').charAt(0).toUpperCase())}</span>`;
+  if (post.anonymous && !post.anonymousRevealedAt) return '<span class="avatar take-avatar anonymous-mask" aria-hidden="true">◒</span>';
+  const frame = heatFrameClass(post.authorHeatTier || 0);
+  if (post.authorAvatarUrl) return `<span class="avatar heat-frame ${frame} take-avatar"><img src="${escapeHtml(post.authorAvatarUrl)}" alt="" /></span>`;
+  return `<span class="avatar heat-frame ${frame} take-avatar">${escapeHtml((post.authorName || 'C').charAt(0).toUpperCase())}</span>`;
 }
 
 function pageHeader(kicker, title, description, action = '') {
@@ -688,24 +740,48 @@ function calloutGlyph(kind, className = '') {
   return `<svg class="callout-glyph ${className}" aria-hidden="true"><use href="#${symbol}"></use></svg>`;
 }
 
+function postStateMarkup(post, detail = false) {
+  const lifecycle = post.lifecycle || {};
+  const active = lifecycle.active || 'none';
+  if (active === 'none') return detail ? '<button class="post-history-link" type="button" data-post-history>History</button>' : '';
+  const expanded = state.expandedPostState === post.id;
+  const labels = { prediction: 'Prediction', defense: 'Defense', redemption: 'Redemption' };
+  const icons = { prediction: '◎', defense: '⬟', redemption: '✦' };
+  let panel = '';
+  if (expanded && active === 'prediction') {
+    const prediction = lifecycle.prediction || {};
+    panel = `<div class="post-state-panel prediction-panel"><header><span>◎</span><div><strong>PREDICT THE RESULT</strong><small>${prediction.status === 'open' ? `Locks ${timeLabel(new Date(prediction.locksAt).getTime())}` : prediction.status}</small></div><button type="button" data-close-post-state>×</button></header>${prediction.status === 'open' ? `<p>Wager 5–25 Vibe Tokens on where this Take will land.</p><div class="prediction-actions"><button type="button" data-predict="alright" data-prediction-post="${post.id}">Based</button><button type="button" data-predict="cringe" data-prediction-post="${post.id}">Hot Take</button></div>` : `<p>This prediction is ${escapeHtml(prediction.status || 'closed')}. ${prediction.outcome ? `Outcome: ${escapeHtml(prediction.outcome === 'alright' ? 'Based' : prediction.outcome === 'cringe' ? 'Hot Take' : 'Refund')}.` : ''}</p>`}</div>`;
+  } else if (expanded && active === 'defense') {
+    const defense = lifecycle.defense || {};
+    panel = `<div class="post-state-panel defense-panel"><header><span>⬟</span><div><strong>${defense.status === 'eligible' ? 'DEFENSE UNLOCKED' : 'THE DEFENSE'}</strong><small>Attached to this original Take</small></div><button type="button" data-close-post-state>×</button></header>${defense.status === 'submitted' ? `<p>${escapeHtml(defense.content || '')}</p>${post.authorId === currentUserId() ? '<button type="button" data-open-redemption>Open Redemption</button>' : ''}` : post.authorId === currentUserId() ? `<form data-defense-form="${post.id}"><textarea name="content" maxlength="10000" minlength="20" required placeholder="Make your case…"></textarea><button type="submit">Publish Defense</button></form>` : '<p>The author can now defend this Hot Take.</p>'}</div>`;
+  } else if (expanded && active === 'redemption') {
+    const redemption = lifecycle.redemption || {};
+    const votes = redemption.votes || [];
+    panel = `<div class="post-state-panel redemption-panel"><header><span>✦</span><div><strong>REDEMPTION</strong><small>${redemption.status === 'open' ? `Closes ${timeLabel(new Date(redemption.closesAt).getTime())}` : `${String(redemption.status).toUpperCase()} STATUS`}</small></div><button type="button" data-close-post-state>×</button></header>${redemption.status === 'open' ? `<p>Did the Defense redeem this Take?</p><div class="redemption-actions"><button type="button" data-redemption-vote="redeemed" data-redemption-post="${post.id}">Redeemed</button><button type="button" data-redemption-vote="still_hot" data-redemption-post="${post.id}">Still Hot</button></div><small>${votes.length} votes</small>` : `<p>This Take earned ${escapeHtml(redemption.status)} Redemption status.</p>`}</div>`;
+  }
+  return `<div class="post-state-anchor state-${active}"><button class="post-state-emblem" type="button" data-post-state="${post.id}" aria-expanded="${expanded}" title="${labels[active]}"><span>${icons[active]}</span><small>${labels[active]}</small></button>${panel}${detail ? '<button class="post-history-link" type="button" data-post-history>History</button>' : ''}</div>`;
+}
+
 function postTemplate(post, detail = false) {
   const total = post.alrightVotes + post.cringeVotes;
   const alrightPercent = total ? Math.round((post.alrightVotes / total) * 100) : 50;
   const cringePercent = 100 - alrightPercent;
   const isSaved = state.savedPostIds.includes(post.id);
   const commentCount = post.comments?.length ? countComments(post.comments) : Number(post.commentCount || 0);
-  return `<article class="take-card ${detail ? 'take-card-detail' : 'take-card-feed'} ${post.publishing ? 'take-publishing' : ''}" data-post-id="${post.id}">
+  return `<article class="take-card ${detail ? 'take-card-detail' : 'take-card-feed'} ${post.anonymous && !post.anonymousRevealedAt ? 'anonymous-take' : ''} ${post.publishing ? 'take-publishing' : ''}" data-post-id="${post.id}">
     ${post.publishing ? '<div class="take-publishing-status"><span></span><strong>Publishing</strong><small>Your take is being securely saved in the background.</small></div>' : ''}
     <div class="take-top">
       ${postAvatarMarkup(post)}
       <div class="take-content" ${detail ? '' : `data-open-take="${post.id}" role="link" tabindex="0" aria-label="Open take: ${escapeHtml(post.text)}"`}>
-        <div class="take-byline"><strong>${escapeHtml(post.authorHandle || '@member')}</strong>${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>${timeLabel(post.createdAt || Date.now())} in ${escapeHtml(post.category)}</small></div>
+        <div class="take-byline"><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? post.authorName || post.anonymousCode || 'SIGNAL' : post.authorHandle || '@member')}</strong>${post.anonymous && !post.anonymousRevealedAt ? '<span class="anonymous-label">SEALED</span>' : ''}${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>${timeLabel(post.createdAt || Date.now())} in ${escapeHtml(post.category)}</small></div>
         ${post.contentWarning ? `<details class="content-warning"><summary>Content warning: ${escapeHtml(post.contentWarning)}</summary><h2>${formatPostContent(post.text)}</h2></details>` : `<h2>${formatPostContent(post.text)}</h2>`}
         ${post.topics?.length ? `<div class="post-topics">${post.topics.map(topic => `<span>${escapeHtml(topic)}</span>`).join('')}</div>` : ''}
       </div>
       <button class="icon-button save-button ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>
       <button class="icon-button" type="button" data-post-menu="${post.id}" aria-label="Post options"><svg><use href="#i-more"></use></svg></button>
+      ${post.anonymousOwner && !post.anonymousRevealedAt ? `<button class="reveal-identity-button" type="button" data-reveal-post="${post.id}">Reveal identity</button>` : ''}
     </div>
+    ${postStateMarkup(post, detail)}
     ${postMediaMarkup(post.media)}
     ${post.poll ? pollMarkup(post) : ''}
     ${post.externalEmbed ? externalEmbedMarkup(post.externalEmbed) : post.embedUrl ? `<a class="link-embed" href="${escapeHtml(post.embedUrl)}" target="_blank" rel="noopener noreferrer"><strong>Open attached link</strong><small>${escapeHtml(new URL(post.embedUrl).hostname)}</small></a>` : ''}
@@ -775,7 +851,8 @@ function timeLabel(timestamp) {
 function canDeleteComment(comment) {
   if (!sessionUser) return false;
   const authorId = typeof comment.author === 'object' ? comment.author?.id : '';
-  return Boolean(sessionUser.isAdmin || (authorId && String(authorId) === String(sessionUser.id)));
+  const canModerate = ['owner', 'admin', 'moderator'].includes(sessionUser.staffRole);
+  return Boolean(canModerate || (authorId && String(authorId) === String(sessionUser.id)));
 }
 
 function commentNode(comment, depth = 0) {
@@ -783,7 +860,7 @@ function commentNode(comment, depth = 0) {
   const authorName = typeof author === 'string' ? author : (author.handle || author.displayName || '@member');
   const avatar = typeof author === 'object' && author.avatarUrl ? `<img src="${escapeHtml(author.avatarUrl)}" alt="" />` : escapeHtml(authorName.charAt(0).toUpperCase());
   return `<article class="reddit-comment" style="--depth:${Math.min(depth, 5)}" data-comment-id="${comment.id}">
-    <div class="comment-rail"><span class="avatar comment-avatar">${avatar}</span><i></i></div>
+    <div class="comment-rail"><span class="avatar comment-avatar heat-frame ${heatFrameClass(author.heatTier || author.cringeScore || 0)}">${avatar}</span><i></i></div>
     <div class="comment-content"><div class="comment-author"><strong>${escapeHtml(authorName)}</strong>${typeof author === 'object' && author.isAutomated ? '<span class="automation-label">AUTOMATED</span>' : ''}<span>•</span><time>${timeLabel(comment.createdAt)}</time></div>
       <p>${escapeHtml(comment.text)}</p>
       ${comment.gifUrl ? `<img class="comment-gif" src="${escapeHtml(comment.gifUrl)}" alt="GIF attached to Take" loading="lazy" />` : ''}
@@ -846,15 +923,16 @@ function postEmojiPicker(post) {
 }
 
 function homeView() {
-  const posts = state.posts.length
-    ? feedMarkup(state.posts)
+  const source = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const posts = state.activeFeedTab === 'Following'
+    ? emptyState('◎', 'No followed accounts yet', 'Posts from people you follow will appear here.')
+    : source.length
+    ? feedMarkup(source)
     : emptyState('✦', 'No takes to show yet', 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post your first take</button>');
 
   return `${adBanner('top-leaderboard')}
     <div class="feed-tabs" role="tablist" aria-label="Feed views">
-      <button class="tab active" type="button" data-feed-tab="For You">For You</button>
-      <button class="tab" type="button" data-feed-tab="Following">Following</button>
-      <button class="tab" type="button" data-feed-tab="Latest">Latest</button>
+      ${['For You','Following','Anonymous','Trending'].map(label => `<button class="tab ${state.activeFeedTab === label ? 'active' : ''}" type="button" data-feed-tab="${label}">${label}</button>`).join('')}
     </div>
     <div class="category-row" aria-label="Filter by category">
       <button class="chip active" type="button" data-category="All">All</button><button class="chip" type="button" data-category="Entertainment">Entertainment</button><button class="chip" type="button" data-category="Music">Music</button><button class="chip" type="button" data-category="Movies">Movies</button><button class="chip" type="button" data-category="Games">Games</button><button class="chip" type="button" data-category="Life">Life</button>
@@ -972,19 +1050,58 @@ function guildDetailView() {
   const guild = state.activeGuild?.id === id ? state.activeGuild : null;
   if (!guild) return `${pageHeader('GUILD', 'Loading guild…', 'Opening the public guild profile.')}`;
   const tab = location.hash.split('/')[2] || (guild.joined ? 'feed' : 'public');
-  const tabs = `<nav class="guild-tabs"><button data-guild-tab="public" class="${tab === 'public' ? 'active' : ''}">Public profile</button><button data-guild-tab="feed" class="${tab === 'feed' ? 'active' : ''}">Member feed</button><button data-guild-tab="chat" class="${tab === 'chat' ? 'active' : ''}">Group chat</button>${guild.joined ? `<button data-guild-tab="members" class="${tab === 'members' ? 'active' : ''}">Members</button><button data-guild-tab="identity" class="${tab === 'identity' ? 'active' : ''}">My identity</button>` : ''}${guild.permissions?.manageRoles ? `<button data-guild-tab="roles" class="${tab === 'roles' ? 'active' : ''}">Roles</button>` : ''}${guild.permissions?.viewAudit ? `<button data-guild-tab="audit" class="${tab === 'audit' ? 'active' : ''}">Audit</button>` : ''}${guild.permissions?.manageGuild ? `<button data-guild-tab="settings" class="${tab === 'settings' ? 'active' : ''}">Style studio</button>` : ''}</nav>`;
+  const tabs = `<nav class="guild-tabs"><button data-guild-tab="public" class="${tab === 'public' ? 'active' : ''}">Public profile</button><button data-guild-tab="feed" class="${tab === 'feed' ? 'active' : ''}">Member feed</button><button data-guild-tab="pinboard" class="${tab === 'pinboard' ? 'active' : ''}">Pinboard</button><button data-guild-tab="chat" class="${tab === 'chat' ? 'active' : ''}">Group chat</button>${guild.joined ? `<button data-guild-tab="members" class="${tab === 'members' ? 'active' : ''}">Members</button><button data-guild-tab="identity" class="${tab === 'identity' ? 'active' : ''}">My identity</button>` : ''}${guild.permissions?.manageRoles ? `<button data-guild-tab="roles" class="${tab === 'roles' ? 'active' : ''}">Roles</button>` : ''}${guild.permissions?.viewAudit ? `<button data-guild-tab="audit" class="${tab === 'audit' ? 'active' : ''}">Audit</button>` : ''}${guild.permissions?.manageGuild ? `<button data-guild-tab="settings" class="${tab === 'settings' ? 'active' : ''}">Style studio</button>` : ''}</nav>`;
   const hero = `<section class="guild-hero guild-bg-${escapeHtml(guild.backgroundPattern || 'clean')} guild-cards-${escapeHtml(guild.cardStyle || 'solid')} guild-effect-${escapeHtml(guild.seasonalEffect || 'none')}" style="--guild-theme:${escapeHtml(guild.themeColor || '#7444e8')};--guild-accent:${escapeHtml(guild.accentColor || '#ff4713')}"><div class="guild-cover">${guild.bannerUrl ? `<img src="${escapeHtml(guild.bannerUrl)}" alt="" />` : ''}</div><div class="guild-hero-body"><span class="guild-profile-icon guild-icon-${escapeHtml(guild.iconShape || 'rounded')}">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div><span class="section-kicker">LEVEL ${Number(guild.level || 1)} · ${guild.memberCount} MEMBERS</span><h1>${escapeHtml(guild.name)}</h1><p>${escapeHtml(guild.tagline || guild.description)}</p><div class="guild-xp-track"><i style="width:${Math.min(100, Number(guild.guildXp || 0) % 100)}%"></i></div></div><button class="${guild.joined ? 'quiet-action' : 'primary-action'}" type="button" data-toggle-guild="${guild.id}" ${guild.owner ? 'disabled' : ''}>${guild.owner ? 'Owner' : guild.joined ? 'Leave guild' : 'Join guild'}</button></div></section>`;
   let body = '';
   if (tab === 'public') body = `${guild.pinnedAnnouncement ? `<aside class="guild-announcement"><strong>Pinned announcement</strong><p>${escapeHtml(guild.pinnedAnnouncement)}</p></aside>` : ''}<section class="guild-public-grid"><article><span class="section-kicker">ABOUT</span><h2>${escapeHtml(guild.description || 'No description yet.')}</h2></article><article><span class="section-kicker">RULES</span><div class="formatted-copy">${escapeHtml(guild.rules || 'Guild rules have not been added yet.').replace(/\n/g, '<br>')}</div></article></section>`;
   else if (!guild.canViewContent) body = emptyState('🔒', 'Members-only area', 'This guild is public from the outside, but its feed and group chat are visible only to members.', `<button class="primary-action" type="button" data-toggle-guild="${guild.id}">Join guild</button>`);
   else if (tab === 'feed') body = `${guild.permissions?.createPosts ? `<form class="guild-post-composer" id="guildPostForm"><textarea name="content" maxlength="2000" required placeholder="Share something with ${escapeHtml(guild.name)}…"></textarea><select name="category"><option>Life</option><option>Entertainment</option><option>Movies</option><option>Music</option><option>Games</option></select><button class="primary-action" type="submit">Post to guild</button></form>` : '<aside class="info-callout"><strong>Read-only role</strong><p>The owner must grant Contributor posting permission before you can publish here.</p></aside>'}${state.guildPosts.length ? feedMarkup(state.guildPosts) : emptyState('✦', 'No guild posts yet', 'Permitted contributors can start the first conversation here.')}`;
   else if (tab === 'chat') body = guild.permissions?.chat ? `<section class="guild-chat"><div class="chat-stream">${state.guildMessages.length ? state.guildMessages.map(message => `<article><span class="avatar">${message.sender?.avatarUrl ? `<img src="${escapeHtml(message.sender.avatarUrl)}" alt="" />` : escapeHtml((message.sender?.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(message.sender?.displayName || 'Member')}</strong><small>${timeLabel(new Date(message.createdAt).getTime())}</small><p>${escapeHtml(message.text)}</p></div></article>`).join('') : '<div class="stage-empty"><h2>No messages yet</h2><p>Start the guild group chat.</p></div>'}</div><form id="guildChatForm"><textarea name="text" maxlength="2000" required placeholder="Message the guild…"></textarea><button class="primary-action" type="submit">Send</button></form></section>` : emptyState('🔒', 'Chat permission required', 'Ask a guild moderator to grant a role with chat access.');
+  else if (tab === 'pinboard') body = pinboardView(guild);
   else if (tab === 'members') body = `<section class="guild-member-list guild-identity-cards">${state.guildMembers.map(member => { const identity = member.guildProfile || {}; return `<article style="--member-accent:${escapeHtml(identity.themeColor || guild.themeColor || '#7444e8')}"><span class="avatar avatar-frame-${escapeHtml(identity.avatarFrame || 'none')}">${identity.avatarUrl || member.user?.avatarUrl ? `<img src="${escapeHtml(identity.avatarUrl || member.user.avatarUrl)}" alt="" />` : escapeHtml((identity.nickname || member.user?.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(identity.nickname || member.user?.displayName || 'Member')}</strong><small><i class="status-dot ${escapeHtml(member.user?.status || 'invisible')}"></i> ${escapeHtml(member.roleKey)} · ${escapeHtml(member.status)}</small><span>${Number(member.contributionScore || 0)} contribution · ${Number(member.streakDays || 0)} day streak · ${Number(member.guildXp || 0)} XP</span></div>${guild.permissions?.manageMembers && member.roleKey !== 'owner' ? `<select data-member-role="${member.user.id}">${['moderator','contributor','chatter','viewer'].map(role => `<option value="${role}" ${member.roleKey === role ? 'selected' : ''}>${role}</option>`).join('')}</select>${member.status === 'pending' ? `<button data-approve-member="${member.user.id}">Approve</button>` : ''}` : ''}</article>`; }).join('') || '<p>No members yet.</p>'}</section>`;
   else if (tab === 'identity') body = guildIdentityEditor(guild);
   else if (tab === 'roles') body = `<section class="role-editor">${(guild.roles || []).filter(role => role.key !== 'owner').map(role => `<form data-role-form="${role.key}"><header><input name="icon" maxlength="12" value="${escapeHtml(role.icon || '◇')}" aria-label="Role icon" /><input name="name" maxlength="40" value="${escapeHtml(role.name)}" aria-label="Role name" /><input name="color" type="color" value="${escapeHtml(role.color)}" aria-label="Role color" /><small>${escapeHtml(role.key)}</small></header><div>${['manageGuild','manageRoles','manageMembers','managePosts','createPosts','chat','viewAudit'].map(permission => `<label><input type="checkbox" name="${permission}" ${role.permissions?.[permission] ? 'checked' : ''} />${permission.replace(/([A-Z])/g, ' $1')}</label>`).join('')}</div><button class="quiet-action" type="submit">Save role design</button></form>`).join('')}</section>`;
   else if (tab === 'audit') body = `<section class="audit-list">${state.guildAudit.map(item => `<article><strong>${escapeHtml(item.actor?.displayName || 'Member')}</strong><span>${escapeHtml(item.action)}</span><small>${new Date(item.createdAt).toLocaleString()}</small></article>`).join('') || '<p>No audited changes yet.</p>'}</section>`;
   else body = guildSettingsEditor(guild);
   return `${hero}${tabs}<div class="guild-workspace">${body}</div>`;
+}
+
+function pinboardView(guild) {
+  if (!guild.canViewContent) return emptyState('🔒', 'Members-only Pinboard', 'Join this guild to enter its live community board.');
+  const cycleEnds = (Number(state.pinboard.cycle || Math.floor(Date.now() / 18_000_000)) + 1) * 18_000_000;
+  const items = state.pinboard.items || [];
+  return `<section class="guild-pinboard">
+    <header><div><span class="section-kicker">LIVE GUILD CHAT</span><h2>PINBOARD</h2><p>Messages, memes, images, and GIFs pinned in chronological order.</p></div><div class="pinboard-clock"><span>Resets in</span><strong>${Math.max(0, Math.ceil((cycleEnds - Date.now()) / 60_000))} min</strong>${state.pinboard.canManage ? '<button type="button" data-reset-pinboard>Reset board</button>' : ''}</div></header>
+    <p class="pinboard-retention">Boards reset every five hours. Previous boards remain available for seven days.</p>
+    <div class="pinboard-stream">${items.length ? items.map((item, index) => `<article class="pinboard-message pin-${index % 5}"><i class="pushpin"></i><span class="avatar">${item.sender?.avatarUrl ? `<img src="${escapeHtml(item.sender.avatarUrl)}" alt="" />` : escapeHtml((item.sender?.displayName || 'C').charAt(0))}</span><div><header><strong>${escapeHtml(item.sender?.displayName || 'Member')}</strong><small>${timeLabel(new Date(item.createdAt).getTime())}</small></header>${item.text ? `<p>${escapeHtml(item.text)}</p>` : ''}${(item.attachments || []).map(file => file.type === 'link' ? `<a href="${escapeHtml(file.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.alt || file.url)}</a>` : `<img src="${escapeHtml(file.url)}" alt="${escapeHtml(file.alt || 'Pinboard attachment')}" />`).join('')}<footer><button type="button">↩ Reply</button><button type="button">♡ React</button></footer></div></article>`).join('') : '<div class="pinboard-empty"><span>📌</span><strong>The board is ready.</strong><p>Pin the first message for your guild.</p></div>'}</div>
+    <form class="pinboard-composer" id="pinboardForm"><textarea name="text" maxlength="2000" placeholder="Pin a message to the board…"></textarea><div><input name="attachment" type="url" placeholder="Optional image, GIF, or link URL" /><button type="button" data-pinboard-emoji>☺</button><button class="primary-action" type="submit">Pin it</button></div></form>
+  </section>`;
+}
+
+function topicsView() {
+  const selectedId = decodeURIComponent(location.hash.split('/')[1] || '');
+  const selected = state.topics.find(topic => String(topic.id) === selectedId || topic.slug === selectedId);
+  if (selected) {
+    const posts = [...state.posts, ...state.anonymousPosts].filter(post => String(post.topic?.id || post.topic || '') === String(selected.id));
+    return `<div class="topic-detail ${selected.state === 'vaulted' ? 'topic-vault' : ''}" style="--topic-accent:${escapeHtml(selected.accentColor || '#ff4713')}"><header>${selected.artworkUrl ? `<img src="${escapeHtml(selected.artworkUrl)}" alt="" />` : '<span>◉</span>'}<div><span class="section-kicker">${selected.state === 'vaulted' ? 'TIME VAULT · READ ONLY' : selected.state.toUpperCase()}</span><h1>${escapeHtml(selected.title)}</h1><p>${escapeHtml(selected.description || '')}</p></div><button type="button" data-back-topics>All Topics</button></header>${selected.rules ? `<aside><strong>Topic rules</strong><p>${escapeHtml(selected.rules)}</p></aside>` : ''}${posts.length ? feedMarkup(posts) : emptyState('◷', selected.state === 'vaulted' ? 'This Vault is quiet' : 'No takes yet', selected.state === 'vaulted' ? 'The archived conversation remains preserved here.' : 'Start the conversation from the post composer.')}</div>`;
+  }
+  const groups = { live: [], scheduled: [], vaulted: [] };
+  state.topics.forEach(topic => (groups[topic.state] ||= []).push(topic));
+  const cards = items => items.length ? items.map(topic => `<button class="topic-card topic-${topic.state}" type="button" data-open-topic="${topic.id}" style="--topic-accent:${escapeHtml(topic.accentColor || '#ff4713')}">${topic.artworkUrl ? `<img src="${escapeHtml(topic.artworkUrl)}" alt="" />` : '<span>◉</span>'}<div><small>${topic.state.toUpperCase()}</small><strong>${escapeHtml(topic.title)}</strong><p>${escapeHtml(topic.description || '')}</p><time>${new Date(topic.startsAt).toLocaleDateString()} – ${new Date(topic.endsAt).toLocaleDateString()}</time></div></button>`).join('') : '<p class="mini-empty">Nothing here yet.</p>';
+  return `${pageHeader('MOMENTS THAT END', 'Limited-Time Topics', 'Join live cultural moments before they become permanent, read-only Time Vaults.')}<section class="topic-groups"><div><h2>Live now</h2>${cards(groups.live)}</div><div><h2>Scheduled</h2>${cards(groups.scheduled)}</div><div><h2>Time Vaults</h2>${cards(groups.vaulted)}</div></section>`;
+}
+
+function battlesView() {
+  const wallet = state.wallet;
+  const walletCard = sessionUser ? `<aside class="vibe-wallet"><div><span class="section-kicker">PREDICTION WALLET</span><strong>${Number(wallet?.balance ?? 100)} Vibe Tokens</strong><small>${Number(wallet?.dailyWagered || 0)} / 50 wagered today · no cash value</small></div><button type="button" data-claim-tokens>Claim daily 20</button></aside>` : '';
+  const cards = state.battles.map(battle => `<article class="battle-card"><header><span class="section-kicker">${battle.size}-ENTRY BATTLE</span><h2>${escapeHtml(battle.title)}</h2><b>${escapeHtml(battle.status)}</b></header><div class="battle-bracket">${(battle.rounds || []).filter(round => round.round === 1).map(round => { const left = battle.entries.find(entry => entry.seed === round.leftSeed); const right = battle.entries.find(entry => entry.seed === round.rightSeed); return `<section><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${left?.seed}"><i>${left?.seed}</i>${escapeHtml(left?.label || 'TBD')}<b>${round.leftVotes || 0}</b></button><span>VS</span><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${right?.seed}"><i>${right?.seed}</i>${escapeHtml(right?.label || 'TBD')}<b>${round.rightVotes || 0}</b></button></section>`; }).join('')}</div></article>`).join('');
+  return `${pageHeader('COMMUNITY TOURNAMENTS', 'Callout Battles', 'Four- and eight-entry brackets decided by the community. Ties enter six-hour sudden death.')}${walletCard}<section class="battle-list">${cards || emptyState('⚔', 'No live Battles', 'Staff-created Battles will appear here.')}</section>`;
+}
+
+function aboutView() {
+  const sections = state.about.sections || [];
+  const updates = state.about.updates || [];
+  return `<section class="about-callout"><header><span class="section-kicker">ABOUT CALLOUT</span><h1>Built in public.<br />Made for honest takes.</h1><p>Callout is an independent social project exploring a better way to publish opinions, vote, debate, and build communities.</p></header><nav>${sections.map(section => `<a href="#about-${section.key}">${escapeHtml(section.title)}</a>`).join('')}</nav><div class="about-sections">${sections.map(section => `<article id="about-${section.key}"><span>${String(sections.indexOf(section) + 1).padStart(2, '0')}</span><div><h2>${escapeHtml(section.title)}</h2><p>${escapeHtml(section.body)}</p></div></article>`).join('')}</div><section class="project-wall"><header><span class="section-kicker">OFFICIAL PROJECT LOG</span><h2>Project Wall</h2><p>Public updates posted by Callout staff.</p></header><div>${updates.length ? updates.map(update => `<article class="project-update ${update.pinned ? 'pinned' : ''}"><i class="pushpin"></i><small>${escapeHtml(String(update.label || 'building').replace('_', ' '))} · ${new Date(update.createdAt).toLocaleDateString()}</small><h3>${escapeHtml(update.title)}</h3><p>${escapeHtml(update.body).replace(/\n/g, '<br>')}</p></article>`).join('') : `<article class="project-update coming-soon"><i class="pushpin"></i><small>COMING SOON</small><h3>The public build log starts here.</h3><p>Official development updates will be posted as Callout grows.</p></article>`}</div></section></section>`;
 }
 
 function notificationCategory(item) {
@@ -1133,6 +1250,16 @@ function settingsView() {
     </form>`;
 }
 
+function adminBigPatchView() {
+  const controls = state.adminBigPatch || { staff: [], audit: [], features: [] };
+  return `<section class="big-patch-admin"><header><div><span class="section-kicker">PRODUCT CONTROL</span><h2>Big Patch Console</h2><p>Server-enforced staff tools, beta controls, Topics, Project Wall, and immutable activity history.</p></div><span class="admin-lock">${escapeHtml(sessionUser?.staffRole || 'ADMIN')}</span></header>
+    <div class="admin-beta-grid"><form id="adminTopicForm"><strong>Create Limited-Time Topic</strong><input name="title" maxlength="100" required placeholder="Topic title" /><textarea name="description" maxlength="500" placeholder="What is this moment about?"></textarea><div><label>Starts<input name="startsAt" type="datetime-local" required /></label><label>Ends<input name="endsAt" type="datetime-local" required /></label></div><button class="primary-action" type="submit">Schedule Topic</button></form>
+    <form id="adminAboutForm"><strong>Publish Project Wall update</strong><input name="title" maxlength="120" required placeholder="Update title" /><textarea name="body" maxlength="4000" required placeholder="Truthful project update"></textarea><div><select name="label"><option value="building">Building</option><option value="shipped">Shipped</option><option value="milestone">Milestone</option><option value="coming_soon">Coming soon</option></select><label><input name="pinned" type="checkbox" /> Pin</label></div><button class="primary-action" type="submit">Publish update</button></form></div>
+    <section class="feature-kills"><header><strong>Beta flags & emergency kill switches</strong><small>Owner changes are saved server-side and audited.</small></header><div>${controls.features.map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} ${sessionUser?.staffRole !== 'owner' ? 'disabled' : ''} /></label>`).join('')}</div></section>
+    <div class="admin-ops-grid"><section><h3>Staff roles</h3>${controls.staff.map(user => `<article><span class="avatar">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><span><b>${escapeHtml(user.displayName)}</b><small>${escapeHtml(user.handle || user.email || '')}</small></span><strong>${escapeHtml(user.staffRole)}</strong></article>`).join('') || '<p>No persisted staff role records. Environment owners remain active.</p>'}</section><section><h3>Latest audit events</h3>${controls.audit.slice(0, 12).map(item => `<article><span><b>${escapeHtml(item.action)}</b><small>${escapeHtml(item.targetType)} · ${new Date(item.createdAt).toLocaleString()}</small></span><strong>${escapeHtml(item.actor?.displayName || 'Staff')}</strong></article>`).join('') || '<p>No audited changes yet.</p>'}</section></div>
+  </section>`;
+}
+
 function analyticsView() {
   if (!sessionUser) return emptyState('↗', 'Sign in required', 'The analytics dashboard is restricted to the Callout administrator.', '<button class="primary-action" type="button" data-go-auth>Sign in</button>');
   if (!sessionUser.isAdmin) return emptyState('🔒', 'Admin access required', 'Traffic and performance data is private and is not available to standard accounts.');
@@ -1164,7 +1291,7 @@ function analyticsView() {
   return `${pageHeader('PRIVATE DASHBOARD', 'Analytics', 'Traffic, acquisition, and performance data from Google Analytics and AdSense.', `<button class="quiet-action" type="button" data-refresh-analytics>Refresh</button>`)}
     <div class="analytics-toolbar"><div class="analytics-ranges">${[7,28,90].map(days => `<button type="button" data-analytics-days="${days}" class="${state.analyticsDays === days ? 'active' : ''}">${days} days</button>`).join('')}</div><span><i></i><strong>${Number(analytics.realtime?.activeUsers || 0)}</strong> active now</span></div>
     <section class="analytics-cards">${cards.map(([label,value,note]) => `<article><small>${label}</small><strong>${typeof value === 'number' ? value.toLocaleString() : value}</strong><span>${note}</span></article>`).join('')}</section>
-    ${adsenseSection}${postConsole}${botsSection}
+    ${adsenseSection}${adminBigPatchView()}${postConsole}${botsSection}
     <section class="analytics-chart"><header><div><span class="section-kicker">TRAFFIC TREND</span><h2>Daily page views</h2></div><small>Updated ${new Date(analytics.generatedAt).toLocaleString()}</small></header><div class="analytics-bars">${(analytics.daily || []).map(item => `<div title="${item.date}: ${item.screenPageViews} views"><span style="height:${Math.max(4, item.screenPageViews / maxViews * 100)}%"></span><small>${item.date.slice(5)}</small></div>`).join('') || '<p>No daily traffic yet.</p>'}</div></section>
     <section class="analytics-tables"><article><header><span class="section-kicker">CONTENT</span><h2>Top pages</h2></header><div class="analytics-table-scroll"><table><thead><tr><th>#</th><th>Path</th><th>Views</th><th>Users</th></tr></thead><tbody>${table(analytics.pages || [], 'pages')}</tbody></table></div></article><article><header><span class="section-kicker">ACQUISITION</span><h2>Traffic channels</h2></header><div class="analytics-table-scroll"><table><thead><tr><th>#</th><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${table(analytics.channels || [], 'channels')}</tbody></table></div></article></section>`;
 }
@@ -1177,7 +1304,7 @@ function authView() {
     <details class="reset-panel"><summary>Forgot your password?</summary><form id="resetRequestForm"><label>Email<input type="email" name="email" required /></label><button class="quiet-action" type="submit">Request reset</button></form><form id="resetConfirmForm" hidden><label>Email<input type="email" name="email" required /></label><label>Reset token<input name="token" required /></label><label>New password<input type="password" name="password" minlength="8" required /></label><button class="primary-action" type="submit">Update password</button></form></details>`;
 }
 
-const viewRenderers = { home: homeExperienceView, trending: trendingView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, 'vibe-progress': vibeProgressView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, take: takeDetailView, auth: authView };
+const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, 'vibe-progress': vibeProgressView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, about: aboutView, take: takeDetailView, auth: authView };
 
 function renderRoute() {
   const route = currentRoute();
@@ -1195,17 +1322,18 @@ function renderRoute() {
 }
 
 function renderFilteredPosts(category = 'All', search = '') {
-  const filtered = state.posts.filter(post => (category === 'All' || post.category === category) && post.text.toLowerCase().includes(search.toLowerCase()));
+  const source = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const filtered = source.filter(post => (category === 'All' || post.category === category) && post.text.toLowerCase().includes(search.toLowerCase()));
   const results = document.querySelector('#feedResults');
   if (!results) return;
   results.innerHTML = filtered.length
     ? feedMarkup(filtered)
-    : emptyState('✦', state.posts.length ? 'No matching takes' : 'No takes to show yet', state.posts.length ? 'Try a different category or search.' : 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post a take</button>');
+    : emptyState('✦', source.length ? 'No matching takes' : 'No takes to show yet', source.length ? 'Try a different category or search.' : 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post a take</button>');
   bindPostInteractions();
 }
 
 function findPostById(id) {
-  return [...state.posts, ...state.guildPosts].find(item => String(item.id) === String(id));
+  return [...state.posts, ...state.anonymousPosts, ...state.trendingPosts, ...state.savedPosts, ...state.guildPosts].find(item => String(item.id) === String(id));
 }
 
 function bindPostInteractions() {
@@ -1253,6 +1381,80 @@ function bindPostInteractions() {
 
 function bindViewInteractions(route) {
   bindPostInteractions();
+  document.querySelectorAll('[data-post-state]').forEach(button => button.addEventListener('click', () => {
+    state.expandedPostState = state.expandedPostState === button.dataset.postState ? '' : button.dataset.postState;
+    renderRoute();
+  }));
+  document.querySelectorAll('[data-close-post-state]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation(); state.expandedPostState = ''; renderRoute();
+  }));
+  document.querySelectorAll('[data-predict]').forEach(button => button.addEventListener('click', async () => {
+    if (!sessionUser) return navigate('auth');
+    const raw = window.prompt('How many Vibe Tokens? Enter 5–25.', '5');
+    if (raw === null) return;
+    const amount = Number(raw);
+    if (!Number.isInteger(amount) || amount < 5 || amount > 25) return showToast('Choose a whole number from 5 to 25.');
+    try {
+      const payload = await apiFetch(`/api/posts/${button.dataset.predictionPost}/prediction/wager`, { method: 'POST', body: JSON.stringify({ choice: button.dataset.predict, amount }) });
+      state.wallet = payload.wallet || state.wallet; await hydratePosts(); showToast(`${amount} Vibe Tokens placed.`);
+    } catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-defense-form]').forEach(form => form.addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      await apiFetch(`/api/posts/${form.dataset.defenseForm}/defense`, { method: 'POST', body: JSON.stringify({ content: sanitizeInput(form.elements.content.value) }) });
+      await hydratePosts(); showToast('Your Defense is attached to the original Take.');
+    } catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-open-redemption]').forEach(button => button.addEventListener('click', async () => {
+    const post = button.closest('[data-post-id]');
+    try { await apiFetch(`/api/posts/${post.dataset.postId}/redemption`, { method: 'POST' }); await hydratePosts(); showToast('The 72-hour Redemption vote is live.'); }
+    catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-redemption-vote]').forEach(button => button.addEventListener('click', async () => {
+    if (!sessionUser) return navigate('auth');
+    try {
+      await apiFetch(`/api/posts/${button.dataset.redemptionPost}/redemption/vote`, { method: 'POST', body: JSON.stringify({ value: button.dataset.redemptionVote }) });
+      await hydratePosts(); showToast('Redemption vote recorded.');
+    } catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-reveal-anonymous]').forEach(button => button.addEventListener('click', async () => {
+    if (!window.confirm('Reveal your identity permanently on this anonymous Take? This cannot be undone.')) return;
+    try { await apiFetch(`/api/posts/${button.dataset.revealAnonymous}/reveal`, { method: 'POST' }); await hydrateBigPatch(); await hydratePosts(); renderRoute(); }
+    catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-open-topic]').forEach(button => button.addEventListener('click', () => navigate(`topics/${button.dataset.openTopic}`)));
+  document.querySelector('[data-back-topics]')?.addEventListener('click', () => navigate('topics'));
+  document.querySelectorAll('[data-battle-vote]').forEach(button => button.addEventListener('click', async () => {
+    if (!sessionUser) return navigate('auth');
+    try {
+      const { battle } = await apiFetch(`/api/battles/${button.dataset.battleVote}/vote`, { method: 'POST', body: JSON.stringify({ round: Number(button.dataset.battleRound), match: Number(button.dataset.battleMatch), seed: Number(button.dataset.battleSeed) }) });
+      state.battles = state.battles.map(item => String(item.id) === String(battle.id) ? battle : item); renderRoute(); showToast('Battle vote recorded.');
+    } catch (error) { showToast(error.message); }
+  }));
+  document.querySelector('[data-claim-tokens]')?.addEventListener('click', async () => {
+    try {
+      const { wallet } = await apiFetch('/api/wallet/daily-claim', { method: 'POST' });
+      state.wallet = wallet;
+      renderRoute();
+      showToast(wallet.claimed === false ? 'Daily tokens were already claimed.' : '20 Vibe Tokens claimed.');
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelector('#pinboardForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const text = sanitizeInput(form.elements.text.value); const url = form.elements.attachment.value.trim();
+    if (!text && !url) return showToast('Add a message or attachment.');
+    try {
+      const attachments = url ? [{ type: /\.(gif|png|jpe?g|webp)(\?.*)?$/i.test(url) ? 'image' : 'link', url, alt: 'Guild pin' }] : [];
+      await apiFetch(`/api/guilds/${state.activeGuild.id}/pinboard`, { method: 'POST', body: JSON.stringify({ text, attachments }) });
+      await hydrateGuildDetail(); renderRoute();
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelector('[data-reset-pinboard]')?.addEventListener('click', async () => {
+    if (!window.confirm('Reset this Pinboard now? The previous board stays archived for seven days.')) return;
+    try { await apiFetch(`/api/guilds/${state.activeGuild.id}/pinboard/reset`, { method: 'POST' }); await hydrateGuildDetail(); renderRoute(); }
+    catch (error) { showToast(error.message); }
+  });
   document.querySelectorAll('[data-open-composer]').forEach(button => button.addEventListener('click', openComposerForUser));
   document.querySelector('[data-open-idea-form]')?.addEventListener('click', openIdeaSubmission);
   document.querySelectorAll('[data-idea-mood]').forEach(button => button.addEventListener('click', () => { state.ideaMood = button.dataset.ideaMood; renderRoute(); }));
@@ -1262,10 +1464,8 @@ function bindViewInteractions(route) {
     button.classList.add('active');
   }));
   document.querySelectorAll('[data-feed-tab]').forEach(button => button.addEventListener('click', () => {
-    button.parentElement.querySelectorAll('button').forEach(item => item.classList.remove('active'));
-    button.classList.add('active');
-    if (button.dataset.feedTab === 'Following') document.querySelector('#feedResults').innerHTML = emptyState('◎', 'No followed accounts yet', 'Posts from people you follow will appear here.');
-    else renderFilteredPosts();
+    state.activeFeedTab = button.dataset.feedTab;
+    renderRoute();
   }));
   document.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => {
     button.parentElement.querySelectorAll('button').forEach(item => item.classList.remove('active'));
@@ -1289,6 +1489,26 @@ function bindViewInteractions(route) {
     catch (error) { input.checked = !input.checked; showToast(error.message); }
   }));
   document.querySelectorAll('[data-admin-post-form]').forEach(form => form.addEventListener('submit', saveAdminPost));
+  document.querySelector('#adminTopicForm')?.addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget;
+    try {
+      await apiFetch('/api/topics', { method: 'POST', body: JSON.stringify({ title: sanitizeInput(form.elements.title.value), slug: '', description: sanitizeInput(form.elements.description.value), rules: '', artworkUrl: '', accentColor: '#ff4713', startsAt: new Date(form.elements.startsAt.value).toISOString(), endsAt: new Date(form.elements.endsAt.value).toISOString(), featured: true }) });
+      form.reset(); await hydrateBigPatch(); renderRoute(); showToast('Limited-Time Topic scheduled.');
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelector('#adminAboutForm')?.addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget;
+    try {
+      await apiFetch('/api/admin/about', { method: 'POST', body: JSON.stringify({ title: sanitizeInput(form.elements.title.value), body: sanitizeInput(form.elements.body.value), label: form.elements.label.value, pinned: form.elements.pinned.checked, order: 0 }) });
+      form.reset(); await hydrateBigPatch(); renderRoute(); showToast('Project Wall updated.');
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelectorAll('[data-feature-control]').forEach(input => input.addEventListener('change', async () => {
+    try {
+      await apiFetch(`/api/admin/features/${encodeURIComponent(input.dataset.featureControl)}`, { method: 'PATCH', body: JSON.stringify({ enabled: input.checked }) });
+      await hydrateAnalytics(); renderRoute(); showToast(`${input.dataset.featureControl} ${input.checked ? 'enabled' : 'disabled'}.`);
+    } catch (error) { input.checked = !input.checked; showToast(error.message); }
+  }));
   document.querySelectorAll('[data-open-admin-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openAdminPost}`)));
   document.querySelectorAll('[data-layout-move]').forEach(button => button.addEventListener('click', () => {
     const order = [...document.querySelectorAll('[data-layout-item]')].map(item => item.dataset.layoutItem);
@@ -1504,6 +1724,15 @@ function openPostMenu(id) {
   download.type = 'button'; download.dataset.downloadPost = ''; download.innerHTML = '<span>↓</span><span><strong>Download</strong><small>Export this live take as an image</small></span>';
   menu.insertBefore(download, menu.querySelector('[data-share-post]'));
   download.addEventListener('click', () => openPostDownload(post));
+  if (isAuthor && (!post.lifecycle?.prediction || post.lifecycle.prediction.status === 'none')) {
+    const prediction = document.createElement('button');
+    prediction.type = 'button'; prediction.innerHTML = '<span>◎</span><span><strong>Open Prediction</strong><small>Let people wager Vibe Tokens on the result</small></span>';
+    menu.insertBefore(prediction, menu.querySelector('[data-share-post]'));
+    prediction.addEventListener('click', async () => {
+      try { closeActionDialog(); await apiFetch(`/api/posts/${post.databaseId}/prediction`, { method: 'POST' }); await hydratePosts(); showToast('Prediction is open for 12 hours.'); }
+      catch (error) { showToast(error.message); }
+    });
+  }
   if (isAuthor || sessionUser?.isAdmin) {
     const viral = document.createElement('button');
     viral.type = 'button'; viral.dataset.viralVideoPost = ''; viral.innerHTML = '<span>▶</span><span><strong>Viral video</strong><small>Generate a 7-second vertical share card</small></span>';
@@ -1515,6 +1744,19 @@ function openPostMenu(id) {
     tts.type = 'button'; tts.dataset.ttsPost = ''; tts.innerHTML = '<span>◉</span><span><strong>Text to Speech</strong><small>Admin-only MP3 voiceover export</small></span>';
     menu.insertBefore(tts, menu.querySelector('[data-share-post]'));
     tts.addEventListener('click', () => openPostTts(post));
+  }
+  if (post.anonymous && ['owner', 'admin', 'moderator'].includes(sessionUser?.staffRole)) {
+    const inspect = document.createElement('button');
+    inspect.type = 'button';
+    inspect.innerHTML = '<span>◉</span><span><strong>Inspect Signal</strong><small>Moderation-only identity lookup · always audited</small></span>';
+    menu.insertBefore(inspect, menu.querySelector('[data-share-post]'));
+    inspect.addEventListener('click', async () => {
+      if (!window.confirm('This identity inspection will be permanently recorded in the staff audit log. Continue?')) return;
+      try {
+        const { identity } = await apiFetch(`/api/admin/anonymous/${post.databaseId}`);
+        showActionDialog(actionDialogShell('AUDITED MODERATION', post.anonymousCode || 'Anonymous Signal', `<div class="dialog-copy"><strong>${escapeHtml(identity.displayName || 'Account')}</strong><p>${escapeHtml(identity.handle || identity.email || identity.id)}</p><small>This lookup has been added to the immutable audit history.</small></div>`));
+      } catch (error) { showToast(error.message); }
+    });
   }
 }
 
@@ -2258,7 +2500,7 @@ function openCommentMenu(id) {
   const post = activeTake();
   const comment = post && findComment(post.comments || [], id);
   if (!comment || !canDeleteComment(comment)) return showToast('You can only manage your own Takes.');
-  const adminCopy = sessionUser?.isAdmin && String(comment.author?.id || '') !== String(sessionUser.id)
+  const adminCopy = ['owner', 'admin', 'moderator'].includes(sessionUser?.staffRole) && String(comment.author?.id || '') !== String(sessionUser.id)
     ? 'Administrator action: this permanently removes the selected Take and any replies beneath it.'
     : 'This permanently removes your Take and any replies beneath it.';
   showActionDialog(actionDialogShell('TAKE OPTIONS', 'Delete this Take?', `<p class="dialog-copy">${adminCopy}</p><div class="confirm-actions"><button class="quiet-action" type="button" data-close-action-secondary>Cancel</button><button class="danger-action" type="button" data-delete-comment="${escapeHtml(String(id))}">Delete Take</button></div>`));
@@ -2400,10 +2642,13 @@ document.querySelectorAll('[data-leader-period]').forEach(button => button.addEv
   if (currentRoute() === 'leaderboards') renderRoute();
 }));
 document.querySelector('#profileButton').addEventListener('click', () => navigate('profile'));
+document.querySelector('#notificationBell').addEventListener('click', () => navigate(sessionUser ? 'notifications' : 'auth'));
 document.querySelector('#mobileMenu').addEventListener('click', () => document.querySelector('#sidebar').classList.toggle('open'));
 function openComposerForUser() {
   if (!sessionUser) { navigate('auth'); return showToast('Create an account or sign in to post a take.'); }
   if (!composerRequestId) composerRequestId = crypto.randomUUID();
+  const topicSelect = document.querySelector('#takeLiveTopic');
+  if (topicSelect) topicSelect.innerHTML = `<option value="">None</option>${state.topics.filter(topic => topic.state === 'live').map(topic => `<option value="${escapeHtml(topic.id)}">${escapeHtml(topic.title)}</option>`).join('')}`;
   updateComposerPreview();
   composer.showModal();
 }
@@ -2617,6 +2862,8 @@ async function submitComposer(draft = false) {
   const payload = {
     clientRequestId: composerRequestId || (composerRequestId = crypto.randomUUID()), content: text, category, media, draft, poll, contentType: poll ? 'poll' : media[0]?.type || 'text',
     visibility: document.querySelector('#takeAudience').value,
+    anonymous: Boolean(document.querySelector('#takeAnonymous')?.checked),
+    topic: document.querySelector('#takeLiveTopic')?.value || null,
     topics: document.querySelector('#takeTopics').value.split(',').map(value => sanitizeInput(value)).filter(Boolean).slice(0, 5),
     contentWarning: sanitizeInput(document.querySelector('#takeWarning').value), reactionSet: document.querySelector('#takeReactionSet').value,
     embedUrl: pendingExternalEmbed?.url || document.querySelector('#takeEmbed').value.trim(), externalEmbed: pendingExternalEmbed, scheduledPublishedAt: scheduledValue ? new Date(scheduledValue).toISOString() : null
@@ -2736,12 +2983,14 @@ window.addEventListener('hashchange', async () => {
   if (currentRoute() === 'user') { await hydratePublicProfile(); renderRoute(); }
   if (currentRoute() === 'profile') { await hydrateOwnProfile(); renderRoute(); }
   if (currentRoute() === 'analytics') { await hydrateAnalytics(); renderRoute(); }
+  if (['topics', 'battles', 'about'].includes(currentRoute())) { await hydrateBigPatch(); renderRoute(); }
 });
 
 setInterval(async () => {
   if (document.activeElement?.matches('textarea,input')) return;
   if (currentRoute() === 'messages' && sessionUser) { await hydrateAccountData(); renderRoute(); }
   if (currentRoute() === 'guild' && location.hash.split('/')[2] === 'chat' && sessionUser) { await hydrateGuildDetail(); renderRoute(); }
+  if (currentRoute() === 'guild' && location.hash.split('/')[2] === 'pinboard' && sessionUser) { await hydrateGuildDetail(); renderRoute(); }
 }, 4000);
 
 updateHeaderProfile();
