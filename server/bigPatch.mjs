@@ -533,9 +533,12 @@ export async function deleteAboutUpdate(actorId, id) {
   return true;
 }
 
-export async function listStaff() {
+export async function listStaff(ownerEmails = []) {
   if (!connected()) return [];
-  return (await User.find({ staffRole: { $ne: 'member' } }).select('displayName handle avatarUrl email staffRole').sort({ staffRole: 1, createdAt: 1 }).lean()).map(plain);
+  const normalizedOwners = ownerEmails.map(email => String(email).trim().toLowerCase()).filter(Boolean);
+  if (!normalizedOwners.length) return [];
+  return (await User.find({ email: { $in: normalizedOwners } }).select('displayName handle avatarUrl email staffRole').sort({ createdAt: 1 }).lean())
+    .map(user => plain({ ...user, staffRole: normalizedOwners.includes(String(user.email || '').toLowerCase()) ? 'owner' : user.staffRole }));
 }
 
 export async function setStaffRole(ownerId, userId, staffRole) {

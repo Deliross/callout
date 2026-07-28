@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260728-bigpatch" />
+    <link rel="stylesheet" href="styles.css?v=20260728-consolefix" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -67,10 +67,12 @@
           <a class="nav-item" href="#guilds" data-route="guilds"><svg><use href="#i-users"></use></svg><span>Guilds</span></a>
           <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
           <a class="nav-item" href="#leaderboards" data-route="leaderboards"><svg><use href="#i-trophy"></use></svg><span>Leaderboards</span></a>
+          <a class="nav-item" href="#battles" data-route="battles"><svg><use href="#i-cringe"></use></svg><span>Battles</span></a>
           <a class="nav-item" href="#messages" data-route="messages"><svg><use href="#i-message"></use></svg><span>Messages</span></a>
           <a class="nav-item" href="#saved" data-route="saved"><svg><use href="#i-bookmark"></use></svg><span>Saved</span></a>
           <a class="nav-item" href="#settings" data-route="settings"><svg><use href="#i-settings"></use></svg><span>Settings</span></a>
           <a class="nav-item" id="analyticsNav" href="#analytics" data-route="analytics" hidden><svg><use href="#i-trend"></use></svg><span>Analytics</span></a>
+          <a class="nav-item" id="adminNav" href="#admin" data-route="admin" hidden><svg><use href="#i-settings"></use></svg><span>Admin Control</span></a>
           <a class="nav-item" href="#auth" data-route="auth"><svg><use href="#i-users"></use></svg><span>Sign in</span></a>
         </nav>
         <button class="post-button" id="openComposer" type="button"><span>＋</span> Post Take</button>
@@ -164,6 +166,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260728-bigpatch"></script>
+    <script src="app.js?v=20260728-consolefix"></script>
   </body>
 </html>

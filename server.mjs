@@ -49,7 +49,10 @@ const requireFeature = name => async (_req, res, next) => {
 const adminEmails = () => new Set(String(process.env.ADMIN_EMAILS || '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean));
 const staffRank = role => ({ member: 0, moderator: 1, admin: 2, owner: 3 }[role] || 0);
 const effectiveStaffRole = user => user?.email && adminEmails().has(String(user.email).toLowerCase()) ? 'owner' : (user?.staffRole || 'member');
-const isAdminAccount = user => staffRank(effectiveStaffRole(user)) >= 2;
+// Private owner consoles are restricted to explicitly configured email
+// addresses. Database staff roles grant moderation permissions, never access
+// to analytics, automation, monetisation, or owner controls.
+const isAdminAccount = user => Boolean(user?.email && adminEmails().has(String(user.email).toLowerCase()));
 const accountPayload = user => ({ ...publicUser(user), staffRole: effectiveStaffRole(user), isAdmin: isAdminAccount(user) });
 
 async function requireAdmin(req, res, next) {
@@ -71,7 +74,7 @@ const requireStaff = minimum => async (req, res, next) => {
   } catch (error) { next(error); }
 };
 const requireModerator = requireStaff('moderator');
-const requireOwner = requireStaff('owner');
+const requireOwner = requireAdmin;
 const requireWritablePost = async (req, res, next) => {
   try { return await postAllowsWrites(req.params.id) ? next() : res.status(423).json({ error: 'This Topic is now a read-only Time Vault.' }); }
   catch (error) { next(error); }
@@ -212,7 +215,7 @@ app.post('/api/battles/:id/vote', requireFeature('battles'), requireAuth, valida
 });
 
 app.get('/api/admin/staff', requireAuth, requireAdmin, async (_req, res, next) => {
-  try { res.json({ staff: await listStaff() }); } catch (error) { next(error); }
+  try { res.json({ staff: await listStaff([...adminEmails()]) }); } catch (error) { next(error); }
 });
 app.patch('/api/admin/staff/:id', requireAuth, requireOwner, validate(schemas.staffRole), async (req, res, next) => {
   try { const user = await setStaffRole(req.userId, req.params.id, req.body.staffRole); if (!user) return res.status(409).json({ error: 'Owner accounts cannot be changed.' }); res.json({ user }); } catch (error) { next(error); }

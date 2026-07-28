@@ -96,6 +96,7 @@ const state = {
   analytics: null,
   botAutomation: null,
   analyticsError: '',
+  adminError: '',
   analyticsDays: 28,
   adminBigPatch: { staff: [], audit: [], features: [] },
   notificationFilter: 'all'
@@ -115,7 +116,7 @@ if (storedState?.settings?.appearanceVersion !== 2) {
   state.settings.theme = 'light';
 }
 
-const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'vibe-progress', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'about', 'take', 'auth']);
+const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'vibe-progress', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'admin', 'about', 'take', 'auth']);
 const postReactions = [
   { key: 'spark', face: '✦', label: 'Sparked' },
   { key: 'purple_smile', face: '☻', label: 'Purple smile' },
@@ -354,6 +355,7 @@ async function apiFetch(url, options = {}, retry = true) {
 function applySessionUser(user) {
   sessionUser = user;
   document.querySelector('#analyticsNav').hidden = !user?.isAdmin;
+  document.querySelector('#adminNav').hidden = !user?.isAdmin;
   if (!user) { updateHeaderProfile(); return; }
   state.profile = {
     ...state.profile,
@@ -578,6 +580,7 @@ async function hydrateApp() {
   if (currentRoute() === 'user') await hydratePublicProfile();
   if (currentRoute() === 'profile') await hydrateOwnProfile();
   if (currentRoute() === 'analytics') await hydrateAnalytics();
+  if (currentRoute() === 'admin') await hydrateAdminControl();
   renderRoute();
 }
 
@@ -645,12 +648,22 @@ async function hydrateOwnProfile() {
   try { state.ownProfileData = (await apiFetch(`/api/users/${sessionUser.id}`, {}, false)).user; } catch (error) { state.ownProfileData = null; console.error(error); }
 }
 async function hydrateAnalytics() {
-  if (!sessionUser?.isAdmin) { state.analytics = null; state.botAutomation = null; state.analyticsError = ''; return; }
+  if (!sessionUser?.isAdmin) { state.analytics = null; state.analyticsError = ''; return; }
   try {
     state.analyticsError = '';
-    const [analytics, automation, staff, audit, features] = await Promise.all([apiFetch(`/api/analytics/summary?days=${state.analyticsDays}`), apiFetch('/api/admin/bots'), apiFetch('/api/admin/staff'), apiFetch('/api/admin/audit'), apiFetch('/api/admin/features')]);
-    state.analytics = analytics.analytics; state.botAutomation = automation; state.adminBigPatch = { staff: staff.staff || [], audit: audit.audit || [], features: features.features || [] };
+    const analytics = await apiFetch(`/api/analytics/summary?days=${state.analyticsDays}`);
+    state.analytics = analytics.analytics;
   } catch (error) { state.analytics = null; state.analyticsError = error.message; }
+}
+
+async function hydrateAdminControl() {
+  if (!sessionUser?.isAdmin) { state.botAutomation = null; state.adminBigPatch = { staff: [], audit: [], features: [] }; state.adminError = ''; return; }
+  try {
+    state.adminError = '';
+    const [automation, staff, audit, features] = await Promise.all([apiFetch('/api/admin/bots'), apiFetch('/api/admin/staff'), apiFetch('/api/admin/audit'), apiFetch('/api/admin/features')]);
+    state.botAutomation = automation;
+    state.adminBigPatch = { staff: staff.staff || [], audit: audit.audit || [], features: features.features || [] };
+  } catch (error) { state.adminError = error.message; }
 }
 async function hydrateAccountData() {
   if (!sessionUser) { state.savedPostIds = []; state.savedPosts = []; state.notifications = []; state.messages = []; state.friendships = []; return; }
@@ -1260,6 +1273,50 @@ function adminBigPatchView() {
   </section>`;
 }
 
+function botAdminControlView() {
+  const automation = state.botAutomation || { bots: [], intervalMinutes: 360 };
+  return `<section class="bot-admin"><header><div><span class="section-kicker">COMMUNITY AUTOMATION</span><h2>Automated hosts</h2><p>Clearly labelled accounts using original curated opinions. One action at most every ${Number(automation.intervalMinutes)} minutes.</p></div><button class="primary-action" type="button" data-run-bots>Run one action</button></header><div>${automation.bots.map(bot => `<article><span class="avatar">${bot.avatarUrl ? `<img src="${escapeHtml(bot.avatarUrl)}" alt="" />` : escapeHtml((bot.displayName || 'B').charAt(0))}</span><div><strong>${escapeHtml(bot.displayName)}</strong><small>${escapeHtml(bot.handle)} · ${escapeHtml(bot.persona || '')}</small><span>${bot.lastRunAt ? `Last active ${timeLabel(new Date(bot.lastRunAt).getTime())}` : 'Ready for first activity'} · ${Number(bot.postCount || 0)} posts</span></div><label class="bot-toggle"><input type="checkbox" data-toggle-bot="${bot.id}" ${bot.enabled ? 'checked' : ''} /><i></i><span>${bot.enabled ? 'Active' : 'Paused'}</span></label></article>`).join('') || '<p>Automated accounts are being initialized.</p>'}</div></section>`;
+}
+
+function adminPostConsoleView() {
+  return `<section class="admin-post-console"><header><div><span class="section-kicker">ADMIN CORRECTIONS</span><h2>Post control console</h2><p>Edit published post copy and public counters. Changes are protected by server-side owner checks and retain real user vote records.</p></div><span class="admin-lock">OWNER ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml(post.text.slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} views · ${Number(post.alrightVotes).toLocaleString()} Based · ${Number(post.cringeVotes).toLocaleString()} Hot Take</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Post content<textarea name="content" maxlength="2000" required>${escapeHtml(post.text)}</textarea></label><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label><label>Views<input name="impressions" type="number" min="0" max="1000000000" value="${Number(post.impressions || 0)}" required /></label><label>Based votes<input name="basedVotes" type="number" min="0" max="1000000000" value="${Number(post.alrightVotes || 0)}" required /></label><label>Hot Take votes<input name="cringeVotes" type="number" min="0" max="1000000000" value="${Number(post.cringeVotes || 0)}" required /></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
+}
+
+function adminControlView() {
+  if (!sessionUser) return emptyState('↗', 'Sign in required', 'Admin Control is restricted to the Callout owner.', '<button class="primary-action" type="button" data-go-auth>Sign in</button>');
+  if (!sessionUser.isAdmin) return emptyState('🔒', 'Owner access required', 'This private console is available only to the account configured as the Callout owner.');
+  if (state.adminError) return `${pageHeader('OWNER ONLY', 'Admin Control', 'Product controls, moderation, automation, and audit history.')}<section class="analytics-setup"><strong>Admin data unavailable</strong><p>${escapeHtml(state.adminError)}</p><button class="quiet-action" type="button" data-refresh-admin>Try again</button></section>`;
+  const controls = state.adminBigPatch || { staff: [], audit: [], features: [] };
+  const section = location.hash.split('/')[1] || 'overview';
+  const tabs = [
+    ['overview', 'Overview'], ['people', 'People & Staff'], ['content', 'Content'],
+    ['anonymous', 'Anonymous'], ['topics', 'Topics'], ['guilds', 'Guilds'],
+    ['battles', 'Battles'], ['predictions', 'Predictions'], ['reports', 'Reports'], ['audit', 'Audit Log']
+  ];
+  const summary = [
+    ['People', state.leaderboard.length], ['Posts', state.posts.length], ['Signals', state.anonymousPosts.length],
+    ['Topics', state.topics.length], ['Guilds', state.guilds.length], ['Battles', state.battles.length]
+  ];
+  const featureControls = `<section class="feature-kills admin-console-block"><header><strong>Beta flags & emergency kill switches</strong><small>Every owner change is saved server-side and audited.</small></header><div>${controls.features.map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} /></label>`).join('')}</div></section>`;
+  const topicColumn = (title, kind, items) => `<section class="admin-topic-column"><header><span><i></i><strong>${title}</strong></span><b>${items.length}</b></header><div>${items.length ? items.map(topic => `<article style="--topic-accent:${escapeHtml(topic.accentColor || '#7444e8')}">${topic.artworkUrl ? `<img src="${escapeHtml(topic.artworkUrl)}" alt="" />` : '<span class="topic-fallback">◉</span>'}<div><small>${escapeHtml(kind)}</small><strong>${escapeHtml(topic.title)}</strong><p>${escapeHtml(topic.description || 'No description yet.')}</p><time>${new Date(topic.startsAt).toLocaleDateString()} – ${new Date(topic.endsAt).toLocaleDateString()}</time></div><button type="button" data-open-topic="${topic.id}">${kind === 'VAULTED' ? 'Open Vault' : 'View Topic'}</button></article>`).join('') : `<p class="mini-empty">No ${title.toLowerCase()}.</p>`}</div></section>`;
+  const topicManager = `<section class="admin-topic-manager"><div class="admin-topic-board">${topicColumn('Live now', 'LIVE', state.topics.filter(topic => topic.state === 'live'))}${topicColumn('Scheduled', 'UPCOMING', state.topics.filter(topic => topic.state === 'scheduled'))}${topicColumn('Time Vaults', 'VAULTED', state.topics.filter(topic => topic.state === 'vaulted'))}</div><form class="admin-topic-editor" id="adminTopicForm"><span class="section-kicker">TOPIC EDITOR</span><h2>Create Limited-Time Topic</h2><label>Title<input name="title" maxlength="100" required placeholder="Topic title" /></label><label>Description<textarea name="description" maxlength="500" placeholder="What is this moment about?"></textarea></label><div><label>Start time<input name="startsAt" type="datetime-local" required /></label><label>End time<input name="endsAt" type="datetime-local" required /></label></div><button class="primary-action" type="submit">Schedule Topic</button></form></section>`;
+  const staff = `<section class="admin-console-block"><header><div><span class="section-kicker">AUTHORIZED ACCOUNTS</span><h2>People & Staff</h2></div><span class="admin-lock">OWNER MANAGED</span></header><div class="admin-staff-list">${controls.staff.map(user => `<article><span class="avatar heat-frame ${escapeHtml(user.heatTier?.className || 'heat-fresh')}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.handle || user.email || '')}</small></div><b>${escapeHtml(user.staffRole)}</b></article>`).join('') || '<p>Only the configured owner account has console access.</p>'}</div><aside class="admin-security-note"><strong>Private console rule</strong><p>Analytics, automation, monetisation, and product controls are restricted to the email configured in <code>ADMIN_EMAILS</code>. Ordinary accounts never appear here.</p></aside></section>`;
+  const anonymous = `<section class="admin-console-block"><header><div><span class="section-kicker">MODERATION</span><h2>Anonymous Signals</h2></div><b>${state.anonymousPosts.length}</b></header><p class="admin-section-copy">Public responses never contain the real author. Use “Inspect Signal” from a post menu only when moderation requires it; every lookup is permanently audited.</p><div class="admin-signal-grid">${state.anonymousPosts.map(post => `<article><span>${escapeHtml(post.anonymousCode || 'SIGNAL')}</span><strong>${escapeHtml(post.text.slice(0, 110))}</strong><button type="button" data-open-take="${post.id}">Open Signal</button></article>`).join('') || '<p>No anonymous posts require review.</p>'}</div></section>`;
+  const guildAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">COMMUNITIES</span><h2>Guild oversight</h2></div><b>${state.guilds.length}</b></header><div class="admin-entity-grid">${state.guilds.map(guild => `<article><span class="avatar">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div><strong>${escapeHtml(guild.name)}</strong><small>${Number(guild.memberCount || 0)} members · ${escapeHtml(guild.privacy || 'public')}</small></div><button type="button" data-open-guild="${guild.id}">Open</button></article>`).join('') || '<p>No guilds yet.</p>'}</div></section>`;
+  const battleAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">TOURNAMENTS</span><h2>Battle control</h2></div><button class="primary-action" type="button" data-route-button="battles">Open public Battles</button></header><div class="admin-entity-grid">${state.battles.map(battle => `<article><span class="admin-entity-icon">⚔</span><div><strong>${escapeHtml(battle.title)}</strong><small>${battle.size}-entry · ${escapeHtml(battle.status)}</small></div><b>${escapeHtml(battle.status)}</b></article>`).join('') || '<p>No Battles have been created yet.</p>'}</div></section>`;
+  const predictionPosts = [...state.posts, ...state.anonymousPosts].filter(post => post.lifecycle?.prediction && post.lifecycle.prediction.status !== 'none');
+  const predictions = `<section class="admin-console-block"><header><div><span class="section-kicker">VIBE TOKENS</span><h2>Predictions</h2></div><b>${predictionPosts.length}</b></header><div class="admin-entity-grid">${predictionPosts.map(post => `<article><span class="admin-entity-icon">◎</span><div><strong>${escapeHtml(post.text.slice(0, 100))}</strong><small>${escapeHtml(post.lifecycle.prediction.status)} · ${escapeHtml(post.authorHandle)}</small></div><button type="button" data-open-take="${post.id}">Open</button></article>`).join('') || '<p>No predictions are running.</p>'}</div></section>`;
+  const audit = `<section class="admin-console-block"><header><div><span class="section-kicker">IMMUTABLE HISTORY</span><h2>Audit Log</h2></div><b>${controls.audit.length}</b></header><div class="admin-audit-table">${controls.audit.map(item => `<article><span>${escapeHtml(item.action)}</span><small>${escapeHtml(item.targetType)} · ${escapeHtml(item.targetId || 'platform')}</small><strong>${escapeHtml(item.actor?.displayName || 'Owner')}</strong><time>${new Date(item.createdAt).toLocaleString()}</time></article>`).join('') || '<p>No audited actions yet.</p>'}</div></section>`;
+  const aboutEditor = `<form class="admin-console-block admin-about-editor" id="adminAboutForm"><span class="section-kicker">PROJECT WALL</span><h2>Publish official update</h2><input name="title" maxlength="120" required placeholder="Update title" /><textarea name="body" maxlength="4000" required placeholder="Truthful project update"></textarea><div><select name="label"><option value="building">Building</option><option value="shipped">Shipped</option><option value="milestone">Milestone</option><option value="coming_soon">Coming soon</option></select><label><input name="pinned" type="checkbox" /> Pin update</label></div><button class="primary-action" type="submit">Publish update</button></form>`;
+  const reports = `<section class="admin-console-block">${emptyState('⚑', 'No open reports', 'User reports and their moderation status will appear here without exposing unrelated private account data.')}</section>`;
+  const views = {
+    overview: `<section class="admin-overview-grid">${summary.map(([label, value]) => `<article><small>${label}</small><strong>${Number(value).toLocaleString()}</strong></article>`).join('')}</section>${featureControls}${botAdminControlView()}`,
+    people: staff, content: `${adminPostConsoleView()}${aboutEditor}`, anonymous, topics: topicManager,
+    guilds: guildAdmin, battles: battleAdmin, predictions, reports, audit
+  };
+  return `<section class="admin-console-shell"><header><span class="section-kicker">ADMIN CONSOLE · OWNER ONLY</span><h1>${escapeHtml(tabs.find(([key]) => key === section)?.[1] || 'Overview')}</h1><p>Private Callout operations, kept separate from website analytics.</p></header><nav class="admin-console-tabs">${tabs.map(([key, label]) => `<button type="button" class="${section === key ? 'active' : ''}" data-admin-section="${key}">${label}</button>`).join('')}</nav><div class="admin-console-view">${views[section] || views.overview}</div></section>`;
+}
+
 function analyticsView() {
   if (!sessionUser) return emptyState('↗', 'Sign in required', 'The analytics dashboard is restricted to the Callout administrator.', '<button class="primary-action" type="button" data-go-auth>Sign in</button>');
   if (!sessionUser.isAdmin) return emptyState('🔒', 'Admin access required', 'Traffic and performance data is private and is not available to standard accounts.');
@@ -1291,7 +1348,7 @@ function analyticsView() {
   return `${pageHeader('PRIVATE DASHBOARD', 'Analytics', 'Traffic, acquisition, and performance data from Google Analytics and AdSense.', `<button class="quiet-action" type="button" data-refresh-analytics>Refresh</button>`)}
     <div class="analytics-toolbar"><div class="analytics-ranges">${[7,28,90].map(days => `<button type="button" data-analytics-days="${days}" class="${state.analyticsDays === days ? 'active' : ''}">${days} days</button>`).join('')}</div><span><i></i><strong>${Number(analytics.realtime?.activeUsers || 0)}</strong> active now</span></div>
     <section class="analytics-cards">${cards.map(([label,value,note]) => `<article><small>${label}</small><strong>${typeof value === 'number' ? value.toLocaleString() : value}</strong><span>${note}</span></article>`).join('')}</section>
-    ${adsenseSection}${adminBigPatchView()}${postConsole}${botsSection}
+    ${adsenseSection}
     <section class="analytics-chart"><header><div><span class="section-kicker">TRAFFIC TREND</span><h2>Daily page views</h2></div><small>Updated ${new Date(analytics.generatedAt).toLocaleString()}</small></header><div class="analytics-bars">${(analytics.daily || []).map(item => `<div title="${item.date}: ${item.screenPageViews} views"><span style="height:${Math.max(4, item.screenPageViews / maxViews * 100)}%"></span><small>${item.date.slice(5)}</small></div>`).join('') || '<p>No daily traffic yet.</p>'}</div></section>
     <section class="analytics-tables"><article><header><span class="section-kicker">CONTENT</span><h2>Top pages</h2></header><div class="analytics-table-scroll"><table><thead><tr><th>#</th><th>Path</th><th>Views</th><th>Users</th></tr></thead><tbody>${table(analytics.pages || [], 'pages')}</tbody></table></div></article><article><header><span class="section-kicker">ACQUISITION</span><h2>Traffic channels</h2></header><div class="analytics-table-scroll"><table><thead><tr><th>#</th><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${table(analytics.channels || [], 'channels')}</tbody></table></div></article></section>`;
 }
@@ -1304,7 +1361,7 @@ function authView() {
     <details class="reset-panel"><summary>Forgot your password?</summary><form id="resetRequestForm"><label>Email<input type="email" name="email" required /></label><button class="quiet-action" type="submit">Request reset</button></form><form id="resetConfirmForm" hidden><label>Email<input type="email" name="email" required /></label><label>Reset token<input name="token" required /></label><label>New password<input type="password" name="password" minlength="8" required /></label><button class="primary-action" type="submit">Update password</button></form></details>`;
 }
 
-const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, 'vibe-progress': vibeProgressView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, about: aboutView, take: takeDetailView, auth: authView };
+const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, 'vibe-progress': vibeProgressView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
 
 function renderRoute() {
   const route = currentRoute();
@@ -1381,6 +1438,8 @@ function bindPostInteractions() {
 
 function bindViewInteractions(route) {
   bindPostInteractions();
+  document.querySelectorAll('[data-admin-section]').forEach(button => button.addEventListener('click', () => navigate(`admin/${button.dataset.adminSection}`)));
+  document.querySelectorAll('.admin-console-view [data-route-button]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.routeButton)));
   document.querySelectorAll('[data-post-state]').forEach(button => button.addEventListener('click', () => {
     state.expandedPostState = state.expandedPostState === button.dataset.postState ? '' : button.dataset.postState;
     renderRoute();
@@ -1479,6 +1538,7 @@ function bindViewInteractions(route) {
   document.querySelectorAll('[data-ranking-view]').forEach(button => button.addEventListener('click', () => { state.leaderboardView = button.dataset.rankingView; renderRoute(); }));
   document.querySelectorAll('[data-analytics-days]').forEach(button => button.addEventListener('click', async () => { state.analyticsDays = Number(button.dataset.analyticsDays); state.analytics = null; renderRoute(); await hydrateAnalytics(); renderRoute(); }));
   document.querySelector('[data-refresh-analytics]')?.addEventListener('click', async () => { state.analytics = null; state.analyticsError = ''; renderRoute(); await hydrateAnalytics(); renderRoute(); });
+  document.querySelector('[data-refresh-admin]')?.addEventListener('click', async () => { state.adminError = ''; renderRoute(); await hydrateAdminControl(); renderRoute(); });
   document.querySelector('[data-run-bots]')?.addEventListener('click', async event => {
     event.currentTarget.disabled = true;
     try { const payload = await apiFetch('/api/admin/bots/run', { method: 'POST' }); state.botAutomation.bots = payload.bots; await Promise.all([hydratePosts(), hydrateTrending()]); renderRoute(); showToast(`${payload.result.bot || 'Automation'} completed a ${payload.result.action} action.`); }
@@ -1506,7 +1566,7 @@ function bindViewInteractions(route) {
   document.querySelectorAll('[data-feature-control]').forEach(input => input.addEventListener('change', async () => {
     try {
       await apiFetch(`/api/admin/features/${encodeURIComponent(input.dataset.featureControl)}`, { method: 'PATCH', body: JSON.stringify({ enabled: input.checked }) });
-      await hydrateAnalytics(); renderRoute(); showToast(`${input.dataset.featureControl} ${input.checked ? 'enabled' : 'disabled'}.`);
+      await hydrateAdminControl(); renderRoute(); showToast(`${input.dataset.featureControl} ${input.checked ? 'enabled' : 'disabled'}.`);
     } catch (error) { input.checked = !input.checked; showToast(error.message); }
   }));
   document.querySelectorAll('[data-open-admin-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openAdminPost}`)));
@@ -2983,6 +3043,7 @@ window.addEventListener('hashchange', async () => {
   if (currentRoute() === 'user') { await hydratePublicProfile(); renderRoute(); }
   if (currentRoute() === 'profile') { await hydrateOwnProfile(); renderRoute(); }
   if (currentRoute() === 'analytics') { await hydrateAnalytics(); renderRoute(); }
+  if (currentRoute() === 'admin') { await hydrateAdminControl(); renderRoute(); }
   if (['topics', 'battles', 'about'].includes(currentRoute())) { await hydrateBigPatch(); renderRoute(); }
 });
 

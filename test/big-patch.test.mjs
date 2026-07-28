@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
 import { createPost, createUser, listAnonymousPosts, listPosts } from '../server/repository.mjs';
 import { createTopic, featureEnabled, getAbout, heatTier, listFeatureControls, topicAllowsWrites } from '../server/bigPatch.mjs';
@@ -59,4 +60,20 @@ test('Big Patch validators enforce token, battle, Topic and Pinboard limits', ()
   assert.equal(schemas.battle.validate({ title: 'Final Four', size: 4, status: 'live', guild: null, entries: ['A', 'B', 'C', 'D'].map(label => ({ label, imageUrl: '' })) }).error, undefined);
   assert.ok(schemas.battle.validate({ title: 'Broken', size: 8, status: 'live', entries: [{ label: 'Only one', imageUrl: '' }] }).error);
   assert.ok(schemas.pinboardEntry.validate({ text: '', attachments: [] }).error);
+});
+
+test('owner consoles are separate, hidden by default, and Battles is navigable', async () => {
+  const [html, app, server, service] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../server/bigPatch.mjs', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /href="#battles"[^>]+data-route="battles"/);
+  assert.match(html, /id="analyticsNav"[^>]+hidden/);
+  assert.match(html, /id="adminNav"[^>]+hidden/);
+  assert.match(app, /analytics:\s*analyticsView,\s*admin:\s*adminControlView/);
+  assert.match(app, /ADMIN CONSOLE · OWNER ONLY/);
+  assert.match(server, /const isAdminAccount = user => Boolean\(user\?\.email && adminEmails\(\)\.has/);
+  assert.match(service, /User\.find\(\{ email: \{ \$in: normalizedOwners \} \}\)/);
 });
