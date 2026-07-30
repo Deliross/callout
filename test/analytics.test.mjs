@@ -23,4 +23,14 @@ test('production template contains configurable ad units and GA4 metadata', asyn
   assert.match(template, /id="analyticsNav"/);
   const application = await readFile(new URL('../app.js', import.meta.url), 'utf8');
   assert.match(application, /data-ad-layout-key="-gw-3\+1f-3d\+2z"/);
+  assert.match(application, /IntersectionObserver/);
+  assert.match(application, /index === 2 \|\| index === 8/);
+});
+
+test('AdSense crawler and ad frames are allowed by production security policy', async () => {
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  assert.match(server, /app\.get\('\/ads\.txt'/);
+  assert.match(server, /fundingchoicesmessages\.google\.com/);
+  assert.match(server, /ep1\.adtrafficquality\.google/);
+  assert.match(server, /googleads\.g\.doubleclick\.net/);
 });

@@ -101,6 +101,7 @@ a { color: inherit; text-decoration: none; }
 .ad-slot.is-ad-live { display: block; border-style: solid; background: var(--paper); }
 .ad-slot.is-ad-live .adsbygoogle { position: static; display: block; visibility: visible; opacity: 1; }
 .ad-slot.is-ad-live .ad-placeholder-copy { display: none; }
+.ad-slot.is-ad-unfilled { display: none; }
 .ad-slot.is-ad-live:has(.adsbygoogle[data-ad-status="unfilled"]) { display: flex; border-style: dashed; background: repeating-linear-gradient(135deg,var(--paper),var(--paper) 10px,var(--soft) 10px,var(--soft) 20px); }
 .ad-slot.is-ad-live:has(.adsbygoogle[data-ad-status="unfilled"]) .adsbygoogle { display: none !important; }
 .ad-slot.is-ad-live:has(.adsbygoogle[data-ad-status="unfilled"]) .ad-placeholder-copy { display: flex; }

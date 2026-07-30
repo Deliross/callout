@@ -126,7 +126,10 @@ export function cosmeticUnlocks(score = 0) {
 function publicIdentity(user) {
   const account = publicUser(user);
   if (!account) return null;
-  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl: account.avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', vibeScore: account.vibeScore, vibeBadges: account.vibeBadges, vibeTokens: account.vibeTokens, cringeScore: account.cringeScore, heatTier: account.heatTier, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
+  const avatarUrl = String(account.avatarUrl || '').startsWith('data:image/')
+    ? `/api/users/${encodeURIComponent(account.id)}/avatar`
+    : account.avatarUrl;
+  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', vibeScore: account.vibeScore, vibeBadges: account.vibeBadges, vibeTokens: account.vibeTokens, cringeScore: account.cringeScore, heatTier: account.heatTier, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
 }
 
 async function incrementVibe(userId, amount) {
@@ -340,7 +343,7 @@ export async function adminUpdatePost(postId, adminId, values) {
 export async function listPosts(userId = '', { trending = false } = {}) {
   if (connected) {
     const sort = trending ? { impressions: -1, alrightVotes: -1, cringeVotes: -1, createdAt: -1 } : { createdAt: -1 };
-    const posts = await Post.find({ guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
+    const posts = await Post.find({ guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).limit(60).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
     const counts = await Comment.aggregate([{ $match: { post: { $in: posts.map(post => post._id) } } }, { $group: { _id: '$post', count: { $sum: 1 } } }]);
     const countMap = new Map(counts.map(item => [String(item._id), item.count]));
     return posts.map(post => ({

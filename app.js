@@ -172,6 +172,7 @@ function adConfiguration() {
 }
 
 let adResizeObserver = null;
+let adVisibilityObserver = null;
 let adsenseScriptReady = false;
 
 function observeAdContainer(container) {
@@ -215,6 +216,11 @@ function requestAdUnit(unit, client) {
   syncAdStatus();
   try {
     (window.adsbygoogle = window.adsbygoogle || []).push({});
+    window.setTimeout(() => {
+      if (!unit.isConnected || unit.dataset.adStatus || unit.dataset.googleQueryId) return;
+      container.classList.remove('is-ad-requested');
+      container.classList.add('is-ad-unfilled');
+    }, 8000);
     return true;
   } catch (error) {
     delete unit.dataset.calloutAdReady;
@@ -222,6 +228,24 @@ function requestAdUnit(unit, client) {
     console.warn('AdSense unit deferred:', error.message);
     return false;
   }
+}
+
+function observeAdVisibility(unit) {
+  if (!unit || unit.dataset.calloutAdObserved === 'true') return;
+  if (typeof IntersectionObserver === 'undefined') {
+    requestAdUnit(unit, adConfiguration().client);
+    return;
+  }
+  adVisibilityObserver ||= new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      adVisibilityObserver.unobserve(entry.target);
+      delete entry.target.dataset.calloutAdObserved;
+      requestAdUnit(entry.target, adConfiguration().client);
+    });
+  }, { rootMargin: '600px 0px' });
+  unit.dataset.calloutAdObserved = 'true';
+  adVisibilityObserver.observe(unit);
 }
 
 function initializeAds(root = document) {
@@ -237,7 +261,7 @@ function initializeAds(root = document) {
   });
   units.forEach(unit => {
     if (unit.classList.contains('callout-ad-pending')) return;
-    requestAdUnit(unit, client);
+    observeAdVisibility(unit);
   });
 }
 
@@ -908,7 +932,7 @@ function takeDetailView() {
 }
 
 function feedMarkup(posts) {
-  return `<section class="take-list">${posts.map((post, index) => `${postTemplate(post)}${(index + 1) % 3 === 0 ? inFeedAd() : ''}`).join('')}</section>`;
+  return `<section class="take-list">${posts.map((post, index) => `${postTemplate(post)}${index === 2 || index === 8 ? inFeedAd() : ''}`).join('')}</section>`;
 }
 
 function reactionTone(index) {

@@ -101,13 +101,13 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", 'https://pagead2.googlesyndication.com', 'https://www.googletagmanager.com'],
+      scriptSrc: ["'self'", 'https://pagead2.googlesyndication.com', 'https://fundingchoicesmessages.google.com', 'https://securepubads.g.doubleclick.net', 'https://www.googletagmanager.com'],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'https://accounts.google.com', 'https://www.google-analytics.com', 'https://analytics.google.com', 'https://region1.google-analytics.com'],
-      frameSrc: ["'self'", 'https://accounts.google.com', 'https://googleads.g.doubleclick.net', 'https://tpc.googlesyndication.com'],
+      connectSrc: ["'self'", 'https://accounts.google.com', 'https://pagead2.googlesyndication.com', 'https://googleads.g.doubleclick.net', 'https://securepubads.g.doubleclick.net', 'https://ep1.adtrafficquality.google', 'https://fundingchoicesmessages.google.com', 'https://www.google.com', 'https://www.google-analytics.com', 'https://analytics.google.com', 'https://region1.google-analytics.com'],
+      frameSrc: ["'self'", 'https://accounts.google.com', 'https://googleads.g.doubleclick.net', 'https://tpc.googlesyndication.com', 'https://fundingchoicesmessages.google.com', 'https://www.google.com'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'", 'https://accounts.google.com'],
@@ -171,6 +171,17 @@ if (googleConfigured) {
 app.get('/api/health', (_req, res) => {
   const healthy = process.env.NODE_ENV !== 'production' || databaseMode() === 'mongodb';
   res.status(healthy ? 200 : 503).json({ ok: healthy, database: databaseMode(), googleOAuth: googleConfigured, analyticsTracking: /^G-[A-Z0-9]+$/i.test(process.env.GA_MEASUREMENT_ID || ''), analyticsDashboard: analyticsDataConfigured(), ads: /^ca-pub-\d{10,}$/.test(process.env.ADSENSE_CLIENT_ID || '') });
+});
+app.get('/api/users/:id/avatar', async (req, res, next) => {
+  try {
+    const user = await findUserById(req.params.id);
+    const match = String(user?.avatarUrl || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/);
+    if (!match) return res.status(404).end();
+    const image = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+    if (!image.length || image.length > 2_500_000) return res.status(404).end();
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    res.type(match[1]).send(image);
+  } catch (error) { next(error); }
 });
 app.get('/api/features', async (_req, res, next) => {
   try { res.json({ features: Object.fromEntries((await listFeatureControls()).map(item => [item.key, item.enabled])) }); } catch (error) { next(error); }
@@ -754,6 +765,12 @@ app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html'))
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
 app.get('/payments', (_req, res) => res.sendFile(path.join(root, 'payments.html')));
 app.get('/about', (_req, res) => res.redirect('/#about'));
+app.get('/ads.txt', (_req, res) => {
+  const client = process.env.ADSENSE_CLIENT_ID || '';
+  if (!/^ca-pub-\d{10,}$/.test(client)) return res.status(404).type('text/plain').send('AdSense is not configured.');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.type('text/plain').send(`google.com, ${client.replace('ca-', '')}, DIRECT, f08c47fec0942fa0\n`);
+});
 async function renderIndex(_req, res, next) {
   try {
     let template = await readFile(path.join(root, 'index.html'), 'utf8');
