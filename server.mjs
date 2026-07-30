@@ -752,6 +752,7 @@ app.get('/vendor/dompurify.min.js', (_req, res) => res.sendFile(path.join(root, 
 app.get('/vendor/html2canvas.min.js', (_req, res) => res.sendFile(path.join(root, 'node_modules', 'html2canvas', 'dist', 'html2canvas.min.js')));
 app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html')));
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
+app.get('/payments', (_req, res) => res.sendFile(path.join(root, 'payments.html')));
 app.get('/about', (_req, res) => res.redirect('/#about'));
 async function renderIndex(_req, res, next) {
   try {
