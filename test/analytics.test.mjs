@@ -27,6 +27,14 @@ test('production template contains configurable ad units and GA4 metadata', asyn
   assert.match(application, /index === 2 \|\| index === 8/);
 });
 
+test('ad placeholders keep stable space and the desktop footer stays inside the feed column', async () => {
+  const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(styles, /\.ad-slot\.is-ad-unfilled\s*\{\s*display:\s*none/);
+  assert.match(styles, /\.ad-slot\.is-ad-unfilled\s*\{\s*display:\s*flex/);
+  assert.match(styles, /\.site-footer\s*\{\s*grid-column:\s*2;\s*grid-row:\s*3/);
+  assert.match(styles, /@media \(max-width: 840px\)[\s\S]*?\.site-footer\s*\{\s*grid-column:\s*1\s*\/\s*-1/);
+});
+
 test('AdSense crawler and ad frames are allowed by production security policy', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
   assert.match(server, /app\.get\('\/ads\.txt'/);
