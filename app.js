@@ -3087,5 +3087,4 @@ applyDisplaySettings();
 if (!location.hash) history.replaceState(null, '', '#home');
 loadGoogleAnalytics();
 renderRoute();
-hydrateApp();
-loadProductionAds();
+hydrateApp().finally(loadProductionAds);
