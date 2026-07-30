@@ -232,6 +232,8 @@ function requestAdUnit(unit, client) {
 
 function observeAdVisibility(unit) {
   if (!unit || unit.dataset.calloutAdObserved === 'true') return;
+  const container = unit.closest('.ad-slot');
+  if (!container) return;
   if (typeof IntersectionObserver === 'undefined') {
     requestAdUnit(unit, adConfiguration().client);
     return;
@@ -240,12 +242,14 @@ function observeAdVisibility(unit) {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
       adVisibilityObserver.unobserve(entry.target);
-      delete entry.target.dataset.calloutAdObserved;
-      requestAdUnit(entry.target, adConfiguration().client);
+      const visibleUnit = entry.target.querySelector('.adsbygoogle[data-callout-ad-observed="true"]');
+      if (!visibleUnit) return;
+      delete visibleUnit.dataset.calloutAdObserved;
+      requestAdUnit(visibleUnit, adConfiguration().client);
     });
   }, { rootMargin: '600px 0px' });
   unit.dataset.calloutAdObserved = 'true';
-  adVisibilityObserver.observe(unit);
+  adVisibilityObserver.observe(container);
 }
 
 function initializeAds(root = document) {
