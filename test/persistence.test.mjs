@@ -34,7 +34,10 @@ test('votes, comments, saves and notifications persist per account', async () =>
   assert.deepEqual(await listSavedPostIds(reader.id), [post.id]);
   assert.equal((await listSavedPosts(reader.id))[0].content, 'Persistence test');
   assert.ok((await listNotifications(author.id)).length >= 2);
-  assert.equal((await findUserById(reader.id)).vibeScore, 5);
+  const readerAccount = await findUserById(reader.id);
+  assert.equal(readerAccount.heatScore, 5);
+  assert.equal(readerAccount.heatStreakCurrent, 1);
+  assert.equal(readerAccount.heatActivityDates.length, 1);
 });
 
 test('Take authors can delete their own comments and admins can delete any thread', async () => {

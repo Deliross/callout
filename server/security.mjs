@@ -90,11 +90,9 @@ export const schemas = {
     themeColor: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/).required(),
     avatarFrame: Joi.string().valid('none', 'spark', 'gold', 'violet', 'flame').default('none'),
     profileEffect: Joi.string().valid('none', 'glow', 'bubbles', 'spotlight', 'confetti').default('none'),
-    vibeAura: Joi.string().valid('auto', 'none', 'rookie', 'star', 'legend').default('auto'),
     profileBackground: Joi.string().valid('clean', 'grid', 'waves', 'stars', 'noise').default('clean'),
-    profileLayout: Joi.array().min(1).max(6).unique().items(Joi.string().valid('posts', 'about', 'guilds', 'achievements', 'media', 'trophies')).default(['posts', 'about', 'guilds', 'achievements', 'media', 'trophies']),
+    profileLayout: Joi.array().length(3).ordered(Joi.string().valid('posts'), Joi.string().valid('guilds'), Joi.string().valid('heat')).default(['posts', 'guilds', 'heat']),
     showcaseMode: Joi.string().valid('featured', 'popular', 'controversial', 'recent').default('featured'),
-    featuredBadges: Joi.array().max(3).unique().items(plain(40)).default([]),
     featuredPosts: Joi.array().max(3).items(recordId).default([]),
     pinnedGuilds: Joi.array().max(5).items(recordId).default([]),
     pronouns: plain(40).allow(''),
@@ -207,10 +205,6 @@ export const schemas = {
   ,
   defense: Joi.object({ content: plain(10000).min(20).required() }),
   redemptionVote: Joi.object({ value: Joi.string().valid('redeemed', 'still_hot').required() }),
-  predictionWager: Joi.object({
-    choice: Joi.string().valid('alright', 'cringe').required(),
-    amount: Joi.number().integer().min(5).max(25).required()
-  }),
   topic: Joi.object({
     title: plain(100).required(),
     slug: Joi.string().lowercase().pattern(/^[a-z0-9-]{3,120}$/).allow('').default(''),
@@ -258,8 +252,7 @@ export const schemas = {
     pinned: Joi.boolean(), order: Joi.number().integer().min(0).max(1000)
   }).min(1),
   staffRole: Joi.object({ staffRole: Joi.string().valid('member', 'moderator', 'admin').required() }),
-  featureControl: Joi.object({ enabled: Joi.boolean().required() }),
-  adminTokenAdjustment: Joi.object({ amount: Joi.number().integer().min(-100000).max(100000).invalid(0).required(), reason: plain(240).required() })
+  featureControl: Joi.object({ enabled: Joi.boolean().required() })
 };
 
 export function validate(schema) {

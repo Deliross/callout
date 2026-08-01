@@ -98,12 +98,6 @@ const postSchema = new mongoose.Schema({
     users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
   }],
   lifecycle: {
-    prediction: {
-      status: { type: String, enum: ['none', 'open', 'locked', 'settled'], default: 'none' },
-      locksAt: { type: Date, default: null },
-      settlesAt: { type: Date, default: null },
-      outcome: { type: String, enum: ['', 'alright', 'cringe', 'refund'], default: '' }
-    },
     defense: {
       status: { type: String, enum: ['none', 'eligible', 'submitted'], default: 'none' },
       content: { type: String, default: '', maxlength: 10000 },

@@ -11,12 +11,9 @@ Owner can change them from the private Analytics console without redeploying.
 - `GET /api/anonymous` — masked Anonymous feed.
 - `POST /api/posts` — supports `anonymous` and a live `topic` ID.
 - `POST /api/posts/:id/reveal` — irreversible author reveal.
-- `POST /api/posts/:id/prediction` — author opens a twelve-hour prediction.
-- `POST /api/posts/:id/prediction/wager` — wager 5–25 Vibe Tokens.
 - `POST /api/posts/:id/defense` — one eligible author Defense.
 - `POST /api/posts/:id/redemption` — open a 72-hour Redemption.
 - `POST /api/posts/:id/redemption/vote` — vote `redeemed` or `unchanged`.
-- `GET /api/wallet`, `POST /api/wallet/daily-claim` — token balance and daily claim.
 - `GET /api/battles`, `POST /api/battles/:id/vote` — community brackets.
 - `GET /api/guilds/:id/pinboard` — current board and retained archives.
 - `POST /api/guilds/:id/pinboard` — chronological text/media message.
@@ -32,7 +29,6 @@ state. Vaulted content returns HTTP `423` and cannot be mutated.
 - `GET /api/admin/audit` — immutable security and product activity.
 - `GET /api/admin/features`, `PATCH /api/admin/features/:key` — kill switches.
 - `GET /api/admin/anonymous/:id` — audited identity resolution for moderation.
-- `POST /api/admin/wallet/:id` — audited Admin token adjustment.
 - `POST/PATCH /api/topics/:id` — staff Topic scheduling and control.
 - `POST /api/battles` — staff Battle creation.
 - `POST/PATCH/DELETE /api/admin/about` — Project Wall publishing.
@@ -46,10 +42,9 @@ calculated on the server; frontend visibility is only a convenience.
 The lifecycle worker runs every minute and uses idempotent state checks:
 
 - Topics: Scheduled → Live → Ended → Vaulted.
-- Predictions: lock at 12 hours and settle at 24 hours.
 - Redemption: settle after 72 hours with Gold/Silver status.
 - Battles: normal round → six-hour sudden death → high-seed fallback.
 - Pinboards: five-hour cycles with seven-day archive retention.
 
-Vibe Tokens are non-purchasable, non-transferable, non-withdrawable, and have
-no cash value. Voice XP/Heat progress is never wagered.
+Heat Level is permanent participation progress and cannot be purchased,
+transferred, withdrawn, or wagered.

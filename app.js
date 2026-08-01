@@ -13,19 +13,18 @@ const defaultState = {
     themeColor: '#ff4713',
     avatarFrame: 'none',
     profileEffect: 'none',
-    vibeAura: 'auto',
     profileBackground: 'clean',
-    profileLayout: ['posts', 'about', 'guilds', 'achievements', 'media', 'trophies'],
+    profileLayout: ['posts', 'guilds', 'heat'],
     showcaseMode: 'featured',
-    featuredBadges: [],
-    cosmeticUnlocks: { frames: ['none'], effects: ['none'], auras: ['auto', 'none', 'rookie'], backgrounds: ['clean'], palettes: ['callout'] },
+    cosmeticUnlocks: { frames: ['none'], effects: ['none'], backgrounds: ['clean'], palettes: ['callout'] },
     featuredPosts: [],
     pinnedGuilds: [],
     socialLinks: { twitter: '', instagram: '', discord: '', youtube: '', twitch: '', custom: '' },
     pronouns: '',
     status: 'online',
-    vibeScore: 0,
-    vibeBadges: []
+    heatScore: 0,
+    heatStreak: { current: 0, longest: 0, lastActiveDate: '', activeDates: [] },
+    digitalTrophies: []
   },
   settings: {
     appearanceVersion: 2,
@@ -105,7 +104,6 @@ const state = {
   topics: [],
   battles: [],
   about: { sections: [], updates: [] },
-  wallet: null,
   pinboard: { cycle: '', items: [], canManage: false },
   activeFeedTab: 'For You',
   expandedPostState: ''
@@ -116,7 +114,7 @@ if (storedState?.settings?.appearanceVersion !== 2) {
   state.settings.theme = 'light';
 }
 
-const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'vibe-progress', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'admin', 'about', 'take', 'auth']);
+const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'heat', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'admin', 'about', 'take', 'auth']);
 const postReactions = [
   { key: 'spark', face: '✦', label: 'Sparked' },
   { key: 'purple_smile', face: '☻', label: 'Purple smile' },
@@ -420,19 +418,18 @@ function applySessionUser(user) {
     displayName: user.displayName || state.profile.displayName,
     handle: user.handle || state.profile.handle,
     avatarUrl: user.avatarUrl || state.profile.avatarUrl,
-    vibeScore: Number(user.vibeScore ?? state.profile.vibeScore),
+    heatScore: Number(user.heatScore ?? state.profile.heatScore),
+    heatStreak: user.heatStreak || state.profile.heatStreak,
+    digitalTrophies: user.digitalTrophies || state.profile.digitalTrophies,
     postCount: Number(user.postCount ?? state.profile.postCount ?? 0),
-    vibeBadges: user.vibeBadges || state.profile.vibeBadges,
     bio: user.bio ?? state.profile.bio,
     bannerUrl: user.bannerUrl ?? state.profile.bannerUrl,
     themeColor: user.themeColor || state.profile.themeColor,
     avatarFrame: user.avatarFrame || state.profile.avatarFrame,
     profileEffect: user.profileEffect || state.profile.profileEffect,
-    vibeAura: user.vibeAura || state.profile.vibeAura,
     profileBackground: user.profileBackground || state.profile.profileBackground,
-    profileLayout: user.profileLayout?.length ? user.profileLayout : state.profile.profileLayout,
+    profileLayout: ['posts', 'guilds', 'heat'],
     showcaseMode: user.showcaseMode || state.profile.showcaseMode,
-    featuredBadges: user.featuredBadges || state.profile.featuredBadges,
     cosmeticUnlocks: user.cosmeticUnlocks || state.profile.cosmeticUnlocks,
     featuredPosts: user.featuredPosts || state.profile.featuredPosts,
     pinnedGuilds: user.pinnedGuilds || state.profile.pinnedGuilds,
@@ -470,34 +467,21 @@ function updateHeaderProfile() {
   document.querySelector('#headerHandle').textContent = profile.handle;
   const avatar = document.querySelector('#headerAvatar');
   avatar.classList.remove('heat-fresh', 'heat-mild', 'heat-spicy', 'heat-certified', 'heat-firestarter', 'heat-hall');
-  const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser?.id));
-  avatar.classList.add('heat-frame', heatFrameClass(standing?.cringeScore || 0));
+  avatar.classList.add('heat-frame', heatFrameClass(profile.heatScore || 0));
   avatar.innerHTML = profile.avatarUrl
     ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.displayName)}" />`
     : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
   updateAccountChrome();
 }
 
-function vibeMilestone(score = 0) {
+function heatMilestone(score = 0) {
   const levels = [
-    { name: 'Mic Check', icon: '◉', threshold: 0, next: 25 },
-    { name: 'First Spark', icon: '✦', threshold: 25, next: 100 },
-    { name: 'Crowd Starter', icon: '⚡', threshold: 100, next: 250 },
-    { name: 'Debate Driver', icon: '◆', threshold: 250, next: 1000 },
-    { name: 'Headliner', icon: '♛', threshold: 1000, next: 2500 },
-    { name: 'Callout Icon', icon: '★', threshold: 2500, next: 5000 }
-  ];
-  return [...levels].reverse().find(level => score >= level.threshold) || levels[0];
-}
-
-function cringeMilestone(score = 0) {
-  const levels = [
-    { level: 1, name: 'Fresh Take', icon: '◇', threshold: 0, next: 10, color: '#858b95' },
-    { level: 2, name: 'Mild Heat', icon: '◔', threshold: 10, next: 50, color: '#d86b24' },
-    { level: 3, name: 'Spicy Take', icon: '◆', threshold: 50, next: 150, color: '#f05a25' },
-    { level: 4, name: 'Certified Hot Take', icon: '🔥', threshold: 150, next: 400, color: '#ef3f21' },
-    { level: 5, name: 'Firestarter', icon: '⚡', threshold: 400, next: 1000, color: '#c82a24' },
-    { level: 6, name: 'Hall of Heat', icon: '♛', threshold: 1000, next: 2000, color: '#8d2028' }
+    { level: 1, name: 'Fresh Take', icon: '◇', threshold: 0, next: 1000, color: '#858b95' },
+    { level: 2, name: 'Mild Heat', icon: '◔', threshold: 1000, next: 5000, color: '#d86b24' },
+    { level: 3, name: 'Spicy Take', icon: '◆', threshold: 5000, next: 15000, color: '#f05a25' },
+    { level: 4, name: 'Certified Hot Take', icon: '🔥', threshold: 15000, next: 40000, color: '#ef3f21' },
+    { level: 5, name: 'Firestarter', icon: '⚡', threshold: 40000, next: 100000, color: '#c82a24' },
+    { level: 6, name: 'Hall of Heat', icon: '♛', threshold: 100000, next: 250000, color: '#8d2028' }
   ];
   const current = [...levels].reverse().find(level => score >= level.threshold) || levels[0];
   const progress = current.level === levels.length ? 100 : Math.max(0, Math.min(100, (score - current.threshold) / (current.next - current.threshold) * 100));
@@ -505,17 +489,15 @@ function cringeMilestone(score = 0) {
 }
 
 function updateAccountChrome() {
-  const score = sessionUser ? Number(state.profile.vibeScore || 0) : 0;
-  const standing = state.userStanding;
-  const milestone = vibeMilestone(score);
-  const progress = Math.max(0, Math.min(100, ((score - milestone.threshold) / (milestone.next - milestone.threshold)) * 100));
-  document.querySelector('#headerVibe').textContent = `✦ ${score.toLocaleString()}`;
-  document.querySelector('#sidebarVibeScore').textContent = score.toLocaleString();
-  document.querySelector('#vibeBadgeIcon').textContent = milestone.icon;
-  document.querySelector('#vibeBadgeName').textContent = milestone.name;
-  document.querySelector('#vibeProgressText').textContent = `${score.toLocaleString()} / ${milestone.next.toLocaleString()}`;
-  const track = document.querySelector('#vibeProgress');
-  track.setAttribute('aria-valuenow', String(score)); track.setAttribute('aria-valuemax', String(milestone.next)); track.querySelector('span').style.width = `${progress}%`; track.querySelector('i').style.left = `${Math.max(2, progress - 3)}%`;
+  const score = sessionUser ? Number(state.profile.heatScore || 0) : 0;
+  const milestone = heatMilestone(score);
+  document.querySelector('#headerHeat').textContent = `${score.toLocaleString()} HEAT`;
+  document.querySelector('#sidebarHeatScore').textContent = score.toLocaleString();
+  document.querySelector('#heatTierIcon').textContent = milestone.icon;
+  document.querySelector('#heatTierName').textContent = milestone.name;
+  document.querySelector('#heatProgressText').textContent = milestone.level === 6 ? 'MAX LEVEL' : `${score.toLocaleString()} / ${milestone.next.toLocaleString()}`;
+  const track = document.querySelector('#heatProgress');
+  track.setAttribute('aria-valuenow', String(score)); track.setAttribute('aria-valuemax', String(milestone.next || score)); track.querySelector('span').style.width = `${milestone.progress}%`; track.querySelector('i').style.left = `${Math.max(2, milestone.progress - 3)}%`;
   const railKind = state.railLeaderboardKind === 'based' ? 'based' : 'cringe';
   const railUsers = railKind === 'based' ? state.basedLeaderboard : state.leaderboard;
   const railScoreKey = railKind === 'based' ? 'basedScore' : 'cringeScore';
@@ -523,25 +505,19 @@ function updateAccountChrome() {
   document.querySelector('#railRankNote').textContent = railStanding ? `${Number(railStanding[railScoreKey] || 0).toLocaleString()} ${railKind === 'based' ? 'Based' : 'Hot Take'} ${Number(railStanding[railScoreKey] || 0) === 1 ? 'vote' : 'votes'} received.` : 'Sign in to claim your place.';
   const mini = document.querySelector('#railLeaderboardRows');
   mini.dataset.kind = railKind;
-  mini.innerHTML = railUsers.slice(0, 5).map(user => `<button type="button" data-rail-user="${user.id}"><b>${user.rank}</b><span class="avatar heat-frame ${heatFrameClass(user.cringeScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.badge?.name || user.handle || '')}</small></span><em>${Number(user[railScoreKey] || 0).toLocaleString()}</em></button>`).join('') || '<p>No ranked users yet.</p>';
+  mini.innerHTML = railUsers.slice(0, 5).map(user => `<button type="button" data-rail-user="${user.id}"><b>${user.rank}</b><span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.badge?.name || user.handle || '')}</small></span><em>${Number(user[railScoreKey] || 0).toLocaleString()}</em></button>`).join('') || '<p>No ranked users yet.</p>';
   document.querySelectorAll('[data-leaderboard-kind]').forEach(button => button.classList.toggle('active', button.dataset.leaderboardKind === railKind));
   mini.querySelectorAll('[data-rail-user]').forEach(button => button.addEventListener('click', () => navigate(`user/${button.dataset.railUser}`)));
-  renderProfileCringeBadge();
+  renderProfileHeatFrame();
   renderSidebarWidgets();
   renderLiveMoments();
 }
 
-function renderProfileCringeBadge() {
-  const profileId = currentRoute() === 'user' ? state.publicProfile?.id : sessionUser?.id;
-  const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(profileId));
+function renderProfileHeatFrame() {
   const host = currentRoute() === 'user' ? document.querySelector('.public-user-main') : currentRoute() === 'profile' ? document.querySelector('.profile-identity') : null;
   const profileAvatar = host?.querySelector('.avatar');
-  if (profileAvatar) profileAvatar.classList.add('heat-frame', heatFrameClass(standing?.cringeScore || state.publicProfile?.cringeScore || 0));
-  if (!host || !standing || host.querySelector('.profile-cringe-summary')) return;
-  const level = cringeMilestone(Number(standing.cringeScore || 0));
-  const badge = document.createElement('button'); badge.type = 'button'; badge.className = 'profile-cringe-summary';
-  badge.innerHTML = `<span>${calloutGlyph('personal')}</span><span><strong>${escapeHtml(level.name)}</strong><small>Level ${level.level} · Global #${standing.rank}</small></span>`;
-  badge.addEventListener('click', () => { state.leaderboardView = 'personal'; navigate('leaderboards'); }); host.appendChild(badge);
+  const account = currentRoute() === 'user' ? state.publicProfile : state.profile;
+  if (profileAvatar) profileAvatar.classList.add('heat-frame', heatFrameClass(account?.heatScore || 0));
 }
 
 function renderSidebarWidgets() {
@@ -551,13 +527,13 @@ function renderSidebarWidgets() {
   const joined = state.guilds.filter(guild => guild.joined).slice(0, 3);
   const definitions = {
     'trending-guilds': { title: 'Trending guilds', body: joined.length ? joined.map(guild => `<button type="button" data-widget-guild="${guild.id}"><span>${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><b>${escapeHtml(guild.name)}</b><small>${Number(guild.memberCount || 0)} members</small></button>`).join('') : '<p>Guild activity will appear as communities grow.</p>' },
-    activity: { title: 'Your activity', body: `<div class="widget-stat"><strong>${Number(state.profile.vibeScore || 0).toLocaleString()}</strong><span>Voice XP</span></div><div class="widget-stat"><strong>${Number(state.profile.postCount || 0).toLocaleString()}</strong><span>Posts</span></div>` },
-    achievements: { title: 'Levels & achievements', body: `<p>${state.profile.vibeBadges?.length ? `${state.profile.vibeBadges.length} Voice badge${state.profile.vibeBadges.length === 1 ? '' : 's'} earned.` : 'Interact with Callout to unlock your first Voice level.'}</p><button type="button" data-widget-progress>View progress</button>` }
+    activity: { title: 'Your activity', body: `<div class="widget-stat"><strong>${Number(state.profile.heatScore || 0).toLocaleString()}</strong><span>Heat</span></div><div class="widget-stat"><strong>${Number(state.profile.postCount || 0).toLocaleString()}</strong><span>Posts</span></div>` },
+    achievements: { title: 'Heat streak', body: `<p><strong>${Number(state.profile.heatStreak?.current || 0)}</strong> active day${Number(state.profile.heatStreak?.current || 0) === 1 ? '' : 's'} in a row.</p><button type="button" data-widget-progress>View Heat</button>` }
   };
   container.innerHTML = order.map((key, index) => `<section class="sidebar-widget" data-widget="${key}"><header><strong>${definitions[key].title}</strong><span><button type="button" data-widget-move="${index}" data-direction="-1" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-widget-move="${index}" data-direction="1" aria-label="Move down" ${index === order.length - 1 ? 'disabled' : ''}>↓</button></span></header><div>${definitions[key].body}</div></section>`).join('');
   container.querySelectorAll('[data-widget-move]').forEach(button => button.addEventListener('click', () => { const from = Number(button.dataset.widgetMove); const to = from + Number(button.dataset.direction); [order[from], order[to]] = [order[to], order[from]]; state.settings.widgetOrder = order; persist(); renderSidebarWidgets(); }));
   container.querySelectorAll('[data-widget-guild]').forEach(button => button.addEventListener('click', () => navigate(`guild/${button.dataset.widgetGuild}/public`)));
-  container.querySelector('[data-widget-progress]')?.addEventListener('click', () => navigate('vibe-progress'));
+  container.querySelector('[data-widget-progress]')?.addEventListener('click', () => navigate('heat'));
 }
 
 function renderLiveMoments() {
@@ -649,13 +625,11 @@ async function hydrateBigPatch() {
     apiFetch('/api/battles', {}, false),
     apiFetch('/api/about', {}, false)
   ];
-  if (sessionUser) requests.push(apiFetch('/api/wallet'));
-  const [anonymous, topics, battles, about, wallet] = await Promise.allSettled(requests);
+  const [anonymous, topics, battles, about] = await Promise.allSettled(requests);
   if (anonymous.status === 'fulfilled') state.anonymousPosts = (anonymous.value.posts || []).map(mapPost);
   if (topics.status === 'fulfilled') state.topics = topics.value.topics || [];
   if (battles.status === 'fulfilled') state.battles = battles.value.battles || [];
   if (about.status === 'fulfilled') state.about = about.value;
-  if (wallet?.status === 'fulfilled') state.wallet = wallet.value.wallet;
   renderLiveMoments();
 }
 
@@ -760,12 +734,11 @@ function currentUserId() {
 
 function heatFrameClass(scoreOrTier = 0) {
   if (typeof scoreOrTier === 'object' && scoreOrTier?.className) return scoreOrTier.className;
-  return `heat-${['fresh', 'mild', 'spicy', 'certified', 'firestarter', 'hall'][Math.max(0, cringeMilestone(Number(scoreOrTier || 0)).level - 1)]}`;
+  return `heat-${['fresh', 'mild', 'spicy', 'certified', 'firestarter', 'hall'][Math.max(0, heatMilestone(Number(scoreOrTier || 0)).level - 1)]}`;
 }
 
 function avatarMarkup(className = '') {
-  const standing = state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser?.id));
-  const frame = heatFrameClass(standing?.cringeScore || 0);
+  const frame = heatFrameClass(state.profile.heatScore || 0);
   return state.profile.avatarUrl ? `<span class="avatar heat-frame ${className} ${frame}"><img src="${escapeHtml(state.profile.avatarUrl)}" alt="" /></span>` : `<span class="avatar heat-frame ${className} ${frame}">🦸🏻</span>`;
 }
 
@@ -808,7 +781,7 @@ function emptyState(icon, title, text, action = '') {
 }
 
 function calloutGlyph(kind, className = '') {
-  const symbol = kind === 'based' ? 'i-based' : kind === 'personal' ? 'i-personal-cringe' : 'i-cringe';
+  const symbol = kind === 'based' ? 'i-based' : kind === 'personal' ? 'i-personal-heat' : 'i-cringe';
   return `<svg class="callout-glyph ${className}" aria-hidden="true"><use href="#${symbol}"></use></svg>`;
 }
 
@@ -817,13 +790,10 @@ function postStateMarkup(post, detail = false) {
   const active = lifecycle.active || 'none';
   if (active === 'none') return detail ? '<button class="post-history-link" type="button" data-post-history>History</button>' : '';
   const expanded = state.expandedPostState === post.id;
-  const labels = { prediction: 'Prediction', defense: 'Defense', redemption: 'Redemption' };
-  const icons = { prediction: '◎', defense: '⬟', redemption: '✦' };
+  const labels = { defense: 'Defense', redemption: 'Redemption' };
+  const icons = { defense: '⬟', redemption: '✦' };
   let panel = '';
-  if (expanded && active === 'prediction') {
-    const prediction = lifecycle.prediction || {};
-    panel = `<div class="post-state-panel prediction-panel"><header><span>◎</span><div><strong>PREDICT THE RESULT</strong><small>${prediction.status === 'open' ? `Locks ${timeLabel(new Date(prediction.locksAt).getTime())}` : prediction.status}</small></div><button type="button" data-close-post-state>×</button></header>${prediction.status === 'open' ? `<p>Wager 5–25 Vibe Tokens on where this Take will land.</p><div class="prediction-actions"><button type="button" data-predict="alright" data-prediction-post="${post.id}">Based</button><button type="button" data-predict="cringe" data-prediction-post="${post.id}">Hot Take</button></div>` : `<p>This prediction is ${escapeHtml(prediction.status || 'closed')}. ${prediction.outcome ? `Outcome: ${escapeHtml(prediction.outcome === 'alright' ? 'Based' : prediction.outcome === 'cringe' ? 'Hot Take' : 'Refund')}.` : ''}</p>`}</div>`;
-  } else if (expanded && active === 'defense') {
+  if (expanded && active === 'defense') {
     const defense = lifecycle.defense || {};
     panel = `<div class="post-state-panel defense-panel"><header><span>⬟</span><div><strong>${defense.status === 'eligible' ? 'DEFENSE UNLOCKED' : 'THE DEFENSE'}</strong><small>Attached to this original Take</small></div><button type="button" data-close-post-state>×</button></header>${defense.status === 'submitted' ? `<p>${escapeHtml(defense.content || '')}</p>${post.authorId === currentUserId() ? '<button type="button" data-open-redemption>Open Redemption</button>' : ''}` : post.authorId === currentUserId() ? `<form data-defense-form="${post.id}"><textarea name="content" maxlength="10000" minlength="20" required placeholder="Make your case…"></textarea><button type="submit">Publish Defense</button></form>` : '<p>The author can now defend this Hot Take.</p>'}</div>`;
   } else if (expanded && active === 'redemption') {
@@ -831,6 +801,7 @@ function postStateMarkup(post, detail = false) {
     const votes = redemption.votes || [];
     panel = `<div class="post-state-panel redemption-panel"><header><span>✦</span><div><strong>REDEMPTION</strong><small>${redemption.status === 'open' ? `Closes ${timeLabel(new Date(redemption.closesAt).getTime())}` : `${String(redemption.status).toUpperCase()} STATUS`}</small></div><button type="button" data-close-post-state>×</button></header>${redemption.status === 'open' ? `<p>Did the Defense redeem this Take?</p><div class="redemption-actions"><button type="button" data-redemption-vote="redeemed" data-redemption-post="${post.id}">Redeemed</button><button type="button" data-redemption-vote="still_hot" data-redemption-post="${post.id}">Still Hot</button></div><small>${votes.length} votes</small>` : `<p>This Take earned ${escapeHtml(redemption.status)} Redemption status.</p>`}</div>`;
   }
+  if (!labels[active]) return '';
   return `<div class="post-state-anchor state-${active}"><button class="post-state-emblem" type="button" data-post-state="${post.id}" aria-expanded="${expanded}" title="${labels[active]}"><span>${icons[active]}</span><small>${labels[active]}</small></button>${panel}${detail ? '<button class="post-history-link" type="button" data-post-history>History</button>' : ''}</div>`;
 }
 
@@ -1061,9 +1032,8 @@ async function submitFeatureIdea(event) {
 }
 
 function rankingsExperienceView() {
-  const standing = sessionUser ? state.lifetimeLeaderboard.find(user => String(user.id) === String(sessionUser.id)) : null;
-  const personal = cringeMilestone(Number(standing?.cringeScore || 0));
-  const personalView = sessionUser ? `<section class="personal-cringe-page" style="--cringe-level:${personal.color}"><header><div class="personal-cringe-emblem">${calloutGlyph('personal')}</div><div><span class="section-kicker">YOUR HEAT LEVEL</span><h2>${escapeHtml(personal.name)}</h2><p>Level ${personal.level} · Global #${standing?.rank || '—'} · ${Number(standing?.cringeScore || 0).toLocaleString()} lifetime Heat</p></div></header><div class="personal-level-progress"><span style="width:${personal.progress}%"></span></div><p>${personal.level === 6 ? 'You have reached the Hall of Heat.' : `${personal.remaining.toLocaleString()} valid Hot Take votes until your next level.`}</p><div class="cringe-level-grid">${personal.levels.map(level => `<article class="${personal.level >= level.level ? 'unlocked' : ''}" style="--level:${level.color}"><span>${calloutGlyph('personal')}</span><small>LEVEL ${level.level}</small><strong>${escapeHtml(level.name)}</strong><p>${level.threshold.toLocaleString()}+ Heat</p><b>${personal.level >= level.level ? 'Unlocked' : 'Locked'}</b></article>`).join('')}</div></section>` : emptyState(calloutGlyph('personal'), 'Sign in to see your Heat Level', 'Your permanent Heat level, progress, and global position will appear here.', '<button class="primary-action" type="button" data-go-auth>Sign in</button>');
+  const personal = heatMilestone(Number(state.profile.heatScore || 0));
+  const personalView = sessionUser ? `<section class="heat-ranking-bridge" style="--heat-accent:${personal.color}"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">YOUR HEAT LEVEL</span><h2>${escapeHtml(personal.name)}</h2><p>Level ${personal.level} · ${Number(state.profile.heatScore || 0).toLocaleString()} Heat · ${Number(state.profile.heatStreak?.current || 0)} day streak</p><div class="personal-level-progress"><span style="width:${personal.progress}%"></span></div></div><button class="primary-action" type="button" data-open-heat>Open Heat dashboard</button></section>` : emptyState(calloutGlyph('personal'), 'Sign in to see your Heat Level', 'Your Heat Level and activity streak will appear here.', '<button class="primary-action" type="button" data-go-auth>Sign in</button>');
   const mode = ['based', 'cringe', 'personal'].includes(state.leaderboardView) ? state.leaderboardView : 'based';
   return `<div class="leaderboard-compact-head"><strong>CALLOUT RANKINGS</strong><span><i></i> Updated live</span></div>
     <nav class="ranking-view-tabs leaderboard-switcher"><button type="button" data-ranking-view="based" class="${mode === 'based' ? 'active' : ''}">${calloutGlyph('based')}<span>Most Based</span></button><button type="button" data-ranking-view="cringe" class="${mode === 'cringe' ? 'active' : ''}">${calloutGlyph('cringe')}<span>Hottest Takes</span></button><button type="button" data-ranking-view="personal" class="${mode === 'personal' ? 'active' : ''}">${calloutGlyph('personal')}<span>Your Heat Level</span></button></nav>
@@ -1091,15 +1061,48 @@ function leaderboardExperience(kind) {
   </section>`;
 }
 
-function vibeProgressView() {
-  const score = Number(state.profile.vibeScore || 0);
-  const tiers = [{ name: 'Mic Check', icon: '◉', minimum: 0, next: 25, color: '#858b95' }, { name: 'First Spark', icon: '✦', minimum: 25, next: 100, color: '#55b9e8' }, { name: 'Crowd Starter', icon: '⚡', minimum: 100, next: 250, color: '#6d57df' }, { name: 'Debate Driver', icon: '◆', minimum: 250, next: 1000, color: '#e9782c' }, { name: 'Headliner', icon: '♛', minimum: 1000, next: 2500, color: '#ef3f21' }, { name: 'Callout Icon', icon: '★', minimum: 2500, next: 5000, color: '#101114' }];
-  const current = [...tiers].reverse().find(tier => score >= tier.minimum) || tiers[0];
-  const progress = Math.min(100, ((score - current.minimum) / (current.next - current.minimum)) * 100);
-  return `${pageHeader('VOICE PROGRESSION', 'Make your voice count', 'Voice XP rewards real participation. Post, react, and add Takes to unlock a stronger public level.')}
-    <section class="vibe-progress-hero"><div style="--tier:${current.color}"><span>${current.icon}</span><div><small>CURRENT VOICE LEVEL</small><h2>${current.name}</h2><strong>${score.toLocaleString()} Voice XP</strong></div></div><div class="vibe-rank-track"><span style="width:${progress}%"></span></div><p>${score.toLocaleString()} / ${current.next.toLocaleString()} XP toward your next level</p></section>
-    <section class="vibe-tier-grid">${tiers.map((tier, index) => `<article class="${score >= tier.minimum ? 'unlocked' : ''}" style="--tier:${tier.color}"><span>${tier.icon}</span><small>LEVEL ${index + 1}</small><h2>${tier.name}</h2><p>${tier.minimum.toLocaleString()}+ XP</p><b>${score >= tier.minimum ? 'Unlocked' : 'Locked'}</b></article>`).join('')}</section>
-    <aside class="info-callout"><strong>How Voice XP grows</strong><p>Publish a take: +10 · Add a Take or reply: +4 · First reaction on a post or Take: +1. Repeated toggling never creates extra XP.</p></aside>`;
+const heatTrophyDefaults = [
+  { key: 'first-spark', name: 'First Spark', days: 3, icon: '✦' },
+  { key: 'week-on-fire', name: 'Week on Fire', days: 7, icon: '🔥' },
+  { key: 'heatwave', name: 'Heatwave', days: 14, icon: '☀' },
+  { key: 'month-ablaze', name: 'Month Ablaze', days: 30, icon: '▥' },
+  { key: 'relentless', name: 'Relentless', days: 100, icon: '⛓' },
+  { key: 'hall-of-heat', name: 'Hall of Heat', days: 365, icon: '♛' }
+];
+
+function heatActivityGrid(streak = {}, days = 84) {
+  const active = new Set(streak.activeDates || []);
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const cells = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(today.getTime() - offset * 86400000);
+    const key = date.toISOString().slice(0, 10);
+    const intensity = active.has(key) ? 1 + (date.getUTCDate() % 3) : 0;
+    cells.push(`<i class="heat-day intensity-${intensity}" title="${key}${intensity ? ' · Active' : ''}" aria-label="${key}${intensity ? ', active' : ', quiet'}"></i>`);
+  }
+  return `<div class="heat-activity-grid" role="img" aria-label="Heat activity for the last ${days} days">${cells.join('')}</div>`;
+}
+
+function digitalTrophyCabinet(user = state.profile) {
+  const longest = Number(user.heatStreak?.longest || 0);
+  const trophies = user.digitalTrophies?.length ? user.digitalTrophies : heatTrophyDefaults.map(trophy => ({ ...trophy, unlocked: longest >= trophy.days }));
+  return `<section class="digital-trophy-cabinet"><header><div><span class="section-kicker">DIGITAL TROPHIES</span><h2>Heat Streak cabinet</h2></div><p>Unlocked by showing up consistently—not by spending money.</p></header><div>${trophies.map(trophy => `<article class="${trophy.unlocked ? 'unlocked' : 'locked'}"><span class="trophy-object">${escapeHtml(trophy.icon)}</span><strong>${escapeHtml(trophy.name)}</strong><small>${trophy.unlocked ? 'Unlocked' : `${Number(trophy.days)} day streak`}</small></article>`).join('')}</div></section>`;
+}
+
+function heatLevelView() {
+  const score = Number(state.profile.heatScore || 0);
+  const current = heatMilestone(score);
+  const streak = state.profile.heatStreak || {};
+  return `${pageHeader('YOUR HEAT', 'Heat Level', 'One clear measure of meaningful participation across Callout.')}
+    <section class="heat-level-hero" style="--heat-accent:${current.color}">
+      <div class="heat-level-identity"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">YOUR HEAT LEVEL</span><h2>${escapeHtml(current.name)}</h2><p>Level ${current.level} · <strong>${score.toLocaleString()} Heat</strong></p></div></div>
+      <div class="heat-level-progress"><header><strong>${current.level === 6 ? 'Hall of Heat reached' : `Progress to ${escapeHtml(current.levels[current.level]?.name || 'next level')}`}</strong><span>${current.level === 6 ? 'MAX' : `${score.toLocaleString()} / ${current.next.toLocaleString()}`}</span></header><div><span style="width:${current.progress}%"></span></div><small>${current.level === 6 ? 'You have reached Callout’s highest Heat tier.' : `${current.remaining.toLocaleString()} Heat remaining`}</small></div>
+      <div class="heat-avatar-orbit"><span class="avatar heat-frame ${heatFrameClass(score)}">${state.profile.avatarUrl ? `<img src="${escapeHtml(state.profile.avatarUrl)}" alt="" />` : escapeHtml((state.profile.displayName || 'C').charAt(0))}</span><b>LV ${current.level}</b></div>
+    </section>
+    <section class="heat-tier-grid">${current.levels.map(level => `<article class="${current.level >= level.level ? 'unlocked' : 'locked'}" style="--level:${level.color}"><span>${calloutGlyph('personal')}</span><small>LEVEL ${level.level}</small><strong>${escapeHtml(level.name)}</strong><p>${level.threshold.toLocaleString()}+ Heat</p><b>${current.level >= level.level ? 'Unlocked' : 'Locked'}</b></article>`).join('')}</section>
+    <section class="heat-streak-panel"><div class="heat-streak-summary"><span>🔥</span><div><small>HEAT STREAK</small><strong>${Number(streak.current || 0)} days</strong><p>Longest: ${Number(streak.longest || 0)} days</p></div></div><div class="heat-streak-calendar"><header><strong>12-WEEK ACTIVITY</strong><span>Quiet <i></i><i></i><i></i> On fire</span></header>${heatActivityGrid(streak)}</div></section>
+    ${digitalTrophyCabinet(state.profile)}
+    <aside class="info-callout heat-rules"><strong>How Heat grows</strong><p>Publish a post: +10 · Add a Take or reply: +4 · First vote or reaction: +1. Any meaningful action keeps that day’s Heat Streak alive; repeated toggling never creates extra Heat.</p></aside>`;
 }
 
 const guildLandingSections = ['announcement', 'about', 'rules', 'featured', 'members', 'events', 'progress'];
@@ -1164,10 +1167,8 @@ function topicsView() {
 }
 
 function battlesView() {
-  const wallet = state.wallet;
-  const walletCard = sessionUser ? `<aside class="vibe-wallet"><div><span class="section-kicker">PREDICTION WALLET</span><strong>${Number(wallet?.balance ?? 100)} Vibe Tokens</strong><small>${Number(wallet?.dailyWagered || 0)} / 50 wagered today · no cash value</small></div><button type="button" data-claim-tokens>Claim daily 20</button></aside>` : '';
   const cards = state.battles.map(battle => `<article class="battle-card"><header><span class="section-kicker">${battle.size}-ENTRY BATTLE</span><h2>${escapeHtml(battle.title)}</h2><b>${escapeHtml(battle.status)}</b></header><div class="battle-bracket">${(battle.rounds || []).filter(round => round.round === 1).map(round => { const left = battle.entries.find(entry => entry.seed === round.leftSeed); const right = battle.entries.find(entry => entry.seed === round.rightSeed); return `<section><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${left?.seed}"><i>${left?.seed}</i>${escapeHtml(left?.label || 'TBD')}<b>${round.leftVotes || 0}</b></button><span>VS</span><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${right?.seed}"><i>${right?.seed}</i>${escapeHtml(right?.label || 'TBD')}<b>${round.rightVotes || 0}</b></button></section>`; }).join('')}</div></article>`).join('');
-  return `${pageHeader('COMMUNITY TOURNAMENTS', 'Callout Battles', 'Four- and eight-entry brackets decided by the community. Ties enter six-hour sudden death.')}${walletCard}<section class="battle-list">${cards || emptyState('⚔', 'No live Battles', 'Staff-created Battles will appear here.')}</section>`;
+  return `${pageHeader('COMMUNITY TOURNAMENTS', 'Callout Battles', 'Four- and eight-entry brackets decided by the community. Ties enter six-hour sudden death.')}<section class="battle-list">${cards || emptyState('⚔', 'No live Battles', 'Staff-created Battles will appear here.')}</section>`;
 }
 
 function aboutView() {
@@ -1227,57 +1228,44 @@ function savedView() {
 function profileView() {
   const profile = state.profile;
   const data = { ...profile, ...(state.ownProfileData || {}), socialLinks: { ...profile.socialLinks, ...(state.ownProfileData?.socialLinks || {}) } };
-  return `${pageHeader('ACCOUNT', 'Your profile', 'A customizable public identity with Discord-level detail.', '<button class="quiet-action" type="button" data-open-settings>Edit profile</button>')}
-    <section class="profile-hero discord-profile profile-bg-${escapeHtml(profile.profileBackground)} profile-effect-${escapeHtml(profile.profileEffect)} aura-${escapeHtml(resolvedAura(profile))}" style="--profile-accent:${escapeHtml(profile.themeColor)}">
+  const level = heatMilestone(Number(profile.heatScore || 0));
+  return `${pageHeader('ACCOUNT', 'Your profile', 'Your posts, communities, and Heat in one focused identity.', '<button class="quiet-action" type="button" data-open-settings>Edit profile</button>')}
+    <section class="profile-hero discord-profile profile-bg-${escapeHtml(profile.profileBackground)} profile-effect-${escapeHtml(profile.profileEffect)}" style="--profile-accent:${escapeHtml(profile.themeColor)}">
       <div class="profile-cover">${profile.bannerUrl ? `<img src="${escapeHtml(profile.bannerUrl)}" alt="Profile banner" />` : '<span>CALL IT LIKE YOU SEE IT.</span>'}</div>
-      <div class="profile-identity">${avatarMarkup('profile-avatar')}<div><div class="identity-line"><h2>${escapeHtml(profile.displayName)}</h2><i class="status-dot ${escapeHtml(profile.status)}"></i></div><p>${escapeHtml(profile.handle)}${profile.pronouns ? ` · ${escapeHtml(profile.pronouns)}` : ''}</p></div><div class="vibe-stat-card"><span>✦</span><div><strong>${Number(profile.vibeScore || 0).toLocaleString()}</strong><small>VOICE XP · ${escapeHtml(vibeMilestone(Number(profile.vibeScore || 0)).name)}</small></div></div></div>
+      <div class="profile-identity">${avatarMarkup('profile-avatar')}<div><div class="identity-line"><h2>${escapeHtml(profile.displayName)}</h2><i class="status-dot ${escapeHtml(profile.status)}"></i></div><p>${escapeHtml(profile.handle)}${profile.pronouns ? ` · ${escapeHtml(profile.pronouns)}` : ''}</p>${profile.bio ? `<small class="profile-bio-line">${escapeHtml(profile.bio.slice(0, 180))}</small>` : ''}</div><button class="profile-heat-chip" type="button" data-open-heat><span>${calloutGlyph('personal')}</span><div><strong>${Number(profile.heatScore || 0).toLocaleString()} HEAT</strong><small>${escapeHtml(level.name)} · LEVEL ${level.level}</small></div></button></div>
     </section>
     ${profileTabs()}${profileTabPanel(data)}`;
-}
-
-function resolvedAura(user) {
-  if (user.vibeAura && user.vibeAura !== 'auto') return user.vibeAura;
-  const score = Number(user.vibeScore || 0);
-  return score >= 1000 ? 'legend' : score >= 100 ? 'star' : 'rookie';
 }
 
 function formatBio(value) {
   return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\n/g, '<br>');
 }
 
-const profileTabNames = ['posts', 'about', 'guilds', 'achievements', 'media', 'trophies'];
+const profileTabNames = ['posts', 'guilds', 'heat'];
 function profileTabs(user = state.profile) {
-  const order = user.profileLayout?.length ? user.profileLayout : profileTabNames;
-  return `<nav class="profile-tabs" aria-label="Profile sections">${order.filter(tab => profileTabNames.includes(tab)).map(tab => `<button type="button" data-profile-tab="${tab}" class="${state.profileTab === tab ? 'active' : ''}">${tab.charAt(0).toUpperCase()}${tab.slice(1)}</button>`).join('')}</nav>`;
+  const active = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
+  return `<nav class="profile-tabs" aria-label="Profile sections">${profileTabNames.map(tab => `<button type="button" data-profile-tab="${tab}" class="${active === tab ? 'active' : ''}">${tab.charAt(0).toUpperCase()}${tab.slice(1)}</button>`).join('')}</nav>`;
 }
 
 function profileTabPanel(user) {
-  const tab = state.profileTab;
-  if (tab === 'trophies') {
-    const score = Number(user.cringeScore || 0);
-    const trophies = [{ icon: '◇', name: 'Fresh Take', earned: true }, { icon: '⚡', name: 'Heat Contender', earned: score >= 10 }, { icon: '🔥', name: 'Firestarter', earned: score >= 50 }, { icon: '♛', name: 'Heat Crown', earned: score >= 100 }];
-    return `<section class="trophy-cabinet"><header><span class="section-kicker">HOT TAKE TROPHIES</span><h2>Your competitive cabinet</h2></header><div>${trophies.map(trophy => `<article class="${trophy.earned ? '' : 'locked'}"><span>${trophy.icon}</span><strong>${trophy.name}</strong><small>${trophy.earned ? 'Earned' : 'Locked'}</small></article>`).join('')}</div></section>`;
-  }
+  const tab = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
   const allPosts = user.posts || [];
   const posts = user.showcaseMode === 'featured' && user.featuredPosts?.length ? user.featuredPosts : [...allPosts].sort((a, b) => user.showcaseMode === 'popular' ? (Number(b.alrightVotes || 0) + Number(b.cringeVotes || 0)) - (Number(a.alrightVotes || 0) + Number(a.cringeVotes || 0)) : user.showcaseMode === 'controversial' ? Math.abs(Number(a.alrightVotes || 0) - Number(a.cringeVotes || 0)) - Math.abs(Number(b.alrightVotes || 0) - Number(b.cringeVotes || 0)) : new Date(b.createdAt) - new Date(a.createdAt));
   if (tab === 'posts') return `<section class="profile-tab-panel">${posts.length ? `<div class="profile-post-list">${posts.map(post => `<article><small>${escapeHtml(post.category || 'Take')} · ${timeLabel(new Date(post.createdAt).getTime())}</small><strong>${formatPostContent(post.content || '')}</strong><span>${Number(post.alrightVotes || 0)} Based · ${Number(post.cringeVotes || 0)} Hot Take</span></article>`).join('')}</div>` : emptyState('✦', 'No posts yet', 'Published takes will appear on this profile.')}</section>`;
-  if (tab === 'about') {
-    const social = user.socialLinks || {};
-    const links = [['𝕏', social.twitter], ['◎', social.instagram], ['◈', social.discord], ['▶', social.youtube], ['◉', social.twitch], ['↗', social.custom]].filter(([, value]) => value).map(([icon, value]) => `<span>${icon} ${escapeHtml(value)}</span>`);
-    return `<section class="profile-summary"><div><span class="section-kicker">ABOUT ME</span><div class="formatted-copy">${formatBio(user.bio || 'No bio added yet.')}</div><p>Status: ${escapeHtml(String(user.status || 'offline').toUpperCase())}</p></div><div><span class="section-kicker">ACTIVITY</span><div class="profile-stats"><span><strong>${Number(user.stats?.posts ?? user.postCount ?? 0)}</strong> Posts</span><span><strong>${Number(user.stats?.comments || 0)}</strong> Takes</span><span><strong>${Number(user.stats?.guilds || 0)}</strong> Guilds</span></div><div class="profile-links">${links.length ? links.join('') : '<p>No social links added yet.</p>'}</div></div></section>`;
-  }
   if (tab === 'guilds') return `<section class="profile-tab-panel">${user.guilds?.length ? `<div class="profile-guild-list">${user.guilds.map(guild => `<button type="button" data-open-guild="${guild.id}"><span class="guild-monogram">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><span><strong>${escapeHtml(guild.name)}</strong><small>${Number(guild.memberCount || 0)} members</small></span></button>`).join('')}</div>` : emptyState('⚔', 'No guilds to show', 'Guild memberships will appear here.')}</section>`;
-  if (tab === 'achievements') return `<section class="badges-card"><div><span class="section-kicker">VOICE BADGES</span><h2>Earned through participation</h2></div><div class="badge-grid">${(user.vibeBadges?.length ? user.vibeBadges : [{ icon: '◉', name: 'Mic Check' }]).map(badge => `<span title="${escapeHtml(badge.name)}">${escapeHtml(badge.icon)}<strong>${escapeHtml(badge.name)}</strong></span>`).join('')}<span class="locked" title="Keep building your Voice XP">◇<strong>Next badge</strong></span></div></section>`;
-  return `<section class="profile-tab-panel">${user.media?.length ? `<div class="profile-media-grid">${user.media.flatMap(post => post.media || []).map(item => item.type === 'video' ? `<video src="${escapeHtml(item.url)}" controls></video>` : `<img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.alt || 'Profile media')}" />`).join('')}</div>` : emptyState('▧', 'No media yet', 'Images, GIFs, and videos from published posts will appear here.')}</section>`;
+  const score = Number(user.heatScore || 0);
+  const level = heatMilestone(score);
+  const streak = user.heatStreak || {};
+  return `<section class="profile-tab-panel profile-heat-panel"><div class="profile-heat-grid"><article class="profile-heat-level" style="--heat-accent:${level.color}"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">HEAT LEVEL</span><h2>${escapeHtml(level.name)}</h2><strong>${score.toLocaleString()} Heat · Level ${level.level}</strong><div class="mini-heat-track"><span style="width:${level.progress}%"></span></div><small>${level.level === 6 ? 'Highest level reached' : `${level.remaining.toLocaleString()} Heat to the next level`}</small></div></article><article class="profile-heat-streak"><span>🔥</span><div><span class="section-kicker">HEAT STREAK</span><h2>${Number(streak.current || 0)} days</h2><p>Longest: ${Number(streak.longest || 0)} days</p></div>${heatActivityGrid(streak, 56)}</article></div>${digitalTrophyCabinet(user)}</section>`;
 }
 
 function publicUserView() {
   const user = state.publicProfile;
   const id = decodeURIComponent(location.hash.split('/')[1] || '');
   if (!user || String(user.id) !== id) return `${pageHeader('PROFILE', 'Loading profile…', 'Fetching the latest public account details.')}`;
-  const badges = user.vibeBadges || [];
+  const level = heatMilestone(Number(user.heatScore || 0));
   const friendButton = user.requestIncoming ? `<button class="quiet-action" type="button" data-accept-friend="${user.friendshipId}">Accept friend</button>` : `<button class="quiet-action" type="button" data-friend-user="${user.id}" ${['accepted','pending'].includes(user.friendship) ? 'disabled' : ''}>${user.friendship === 'accepted' ? 'Friends ✓' : user.friendship === 'pending' ? 'Request pending' : 'Add friend'}</button>`;
-  return `<section class="public-user-card profile-bg-${escapeHtml(user.profileBackground || 'clean')} profile-effect-${escapeHtml(user.profileEffect || 'none')} aura-${escapeHtml(resolvedAura(user))}" style="--profile-accent:${escapeHtml(user.themeColor || '#ff4713')}"><div class="public-user-banner">${user.bannerUrl ? `<img src="${escapeHtml(user.bannerUrl)}" alt="" />` : ''}</div><div class="public-user-main"><span class="avatar avatar-frame-${escapeHtml(user.avatarFrame || 'none')}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><h1>${escapeHtml(user.displayName)}${user.isAutomated ? ' <span class="automation-label">AUTOMATED</span>' : ''}</h1><p>${escapeHtml(user.handle || '')}${user.pronouns ? ` · ${escapeHtml(user.pronouns)}` : ''}</p><small>${user.isAutomated ? `${escapeHtml(user.automationPersona || 'Callout automation')} · Clearly labelled automated account` : `✦ ${Number(user.vibeScore || 0).toLocaleString()} Voice XP · ${escapeHtml(vibeMilestone(Number(user.vibeScore || 0)).name)} · ${badges.length} badges`}</small></div><div class="public-user-actions">${user.isAutomated ? '<span class="automation-notice">Operated by Callout</span>' : user.friendship === 'self' ? '<button class="quiet-action" data-open-settings>Edit profile</button>' : `${friendButton}<button class="primary-action" type="button" data-message-user="${user.id}">Message</button>`}</div></div>${profileTabs(user)}${profileTabPanel(user)}</section>`;
+  return `<section class="public-user-card profile-bg-${escapeHtml(user.profileBackground || 'clean')} profile-effect-${escapeHtml(user.profileEffect || 'none')}" style="--profile-accent:${escapeHtml(user.themeColor || '#ff4713')}"><div class="public-user-banner">${user.bannerUrl ? `<img src="${escapeHtml(user.bannerUrl)}" alt="" />` : ''}</div><div class="public-user-main"><span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><h1>${escapeHtml(user.displayName)}${user.isAutomated ? ' <span class="automation-label">AUTOMATED</span>' : ''}</h1><p>${escapeHtml(user.handle || '')}${user.pronouns ? ` · ${escapeHtml(user.pronouns)}` : ''}</p><small>${user.isAutomated ? `${escapeHtml(user.automationPersona || 'Callout automation')} · Clearly labelled automated account` : `${Number(user.heatScore || 0).toLocaleString()} Heat · ${escapeHtml(level.name)} · Level ${level.level}`}</small>${user.bio ? `<p class="profile-bio-line">${escapeHtml(user.bio.slice(0, 180))}</p>` : ''}</div><div class="public-user-actions">${user.isAutomated ? '<span class="automation-notice">Operated by Callout</span>' : user.friendship === 'self' ? '<button class="quiet-action" data-open-settings>Edit profile</button>' : `${friendButton}<button class="primary-action" type="button" data-message-user="${user.id}">Message</button>`}</div></div>${profileTabs(user)}${profileTabPanel(user)}</section>`;
 }
 
 function settingsView() {
@@ -1288,12 +1276,10 @@ function settingsView() {
     <nav class="settings-subnav" aria-label="Settings sections"><a href="#settings" class="${mode === 'settings' ? 'active' : ''}">Settings</a><a href="#customize" class="${mode === 'customize' ? 'active' : ''}">Customize</a><a href="#accessibility" class="${mode === 'accessibility' ? 'active' : ''}">Accessibility</a></nav>
     <form class="settings-form settings-mode-${mode}" id="settingsForm">
       <section class="settings-section customization-studio"><div class="settings-section-head"><div><span class="settings-icon">✦</span><div><h2>Callout Style Studio</h2><p>Personalize your profile, feed, motion, and signature interactions.</p></div></div></div>
-        <div class="customization-grid"><label>Color palette<select name="palette">${['callout','midnight','mint','violet','sunset'].map(value => `<option value="${value}" ${settings.palette === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Feed density<select name="feedDensity">${['compact','comfortable','spacious'].map(value => `<option value="${value}" ${settings.feedDensity === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Vote animation<select name="voteEffect">${['pop','confetti','pulse','none'].map(value => `<option value="${value}" ${settings.voteEffect === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Notification sound<select name="notificationSound">${['callout','spark','soft','none'].map(value => `<option value="${value}" ${settings.notificationSound === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Profile effect<select name="profileEffect">${['none','glow','bubbles','spotlight','confetti'].map(value => `<option value="${value}" ${state.profile.profileEffect === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Voice aura<select name="vibeAura">${['auto','none','rookie','star','legend'].map(value => `<option value="${value}" ${state.profile.vibeAura === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Profile background<select name="profileBackground">${['clean','grid','waves','stars','noise'].map(value => `<option value="${value}" ${state.profile.profileBackground === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Take showcase<select name="showcaseMode">${['featured','popular','controversial','recent'].map(value => `<option value="${value}" ${state.profile.showcaseMode === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label></div>
+        <div class="customization-grid"><label>Color palette<select name="palette">${['callout','midnight','mint','violet','sunset'].map(value => `<option value="${value}" ${settings.palette === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Feed density<select name="feedDensity">${['compact','comfortable','spacious'].map(value => `<option value="${value}" ${settings.feedDensity === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Vote animation<select name="voteEffect">${['pop','confetti','pulse','none'].map(value => `<option value="${value}" ${settings.voteEffect === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Notification sound<select name="notificationSound">${['callout','spark','soft','none'].map(value => `<option value="${value}" ${settings.notificationSound === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Profile effect<select name="profileEffect">${['none','glow','bubbles','spotlight','confetti'].map(value => `<option value="${value}" ${state.profile.profileEffect === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Profile background<select name="profileBackground">${['clean','grid','waves','stars','noise'].map(value => `<option value="${value}" ${state.profile.profileBackground === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Take showcase<select name="showcaseMode">${['featured','popular','controversial','recent'].map(value => `<option value="${value}" ${state.profile.showcaseMode === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label></div>
         <label class="setting-row"><span><strong>Reduced motion</strong><small>Disable profile effects and animated feedback.</small></span><input class="switch-input" type="checkbox" name="reducedMotion" ${checked(settings.reducedMotion)} /><i></i></label>
         <label>Hidden feed topics<input name="hiddenTopics" value="${escapeHtml((settings.hiddenTopics || []).join(', '))}" placeholder="e.g. remakes, spoilers, celebrity news" /><small>Comma-separated topics you do not want in your feed.</small></label>
-        <fieldset class="layout-picker"><legend>Profile section order</legend><div id="profileLayoutEditor">${(state.profile.profileLayout || profileTabNames).map((tab, index, list) => `<span data-layout-item="${tab}"><strong>${tab}</strong><button type="button" data-layout-move="${index}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-layout-move="${index}" data-direction="1" ${index === list.length - 1 ? 'disabled' : ''}>↓</button></span>`).join('')}</div></fieldset>
         <fieldset class="cosmetic-collection"><legend>Unlocked cosmetic collection</legend><div>${Object.entries(state.profile.cosmeticUnlocks || {}).map(([kind, values]) => `<article><strong>${escapeHtml(kind)}</strong>${values.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</article>`).join('')}</div></fieldset>
-        <fieldset class="featured-badge-picker"><legend>Featured profile badges</legend><div>${(state.profile.vibeBadges || []).map(badge => `<label><input type="checkbox" name="featuredBadge" value="${escapeHtml(badge.name)}" ${(state.profile.featuredBadges || []).includes(badge.name) ? 'checked' : ''} /><span>${escapeHtml(badge.icon)} ${escapeHtml(badge.name)}</span></label>`).join('') || '<p>Earn Voice badges to feature them on your profile.</p>'}</div><small>Select up to three.</small></fieldset>
       </section>
       <section class="settings-section"><div class="settings-section-head"><div><span class="settings-icon">◐</span><div><h2>Appearance</h2><p>Choose how Callout looks on this device.</p></div></div></div>
         <div class="theme-options" role="radiogroup" aria-label="Theme"><label><input type="radio" name="theme" value="light" ${checked(settings.theme === 'light')} /><span>☀<strong>Light</strong><small>Bright and crisp</small></span></label><label><input type="radio" name="theme" value="dark" ${checked(settings.theme === 'dark')} /><span>◐<strong>Dark</strong><small>Easy on the eyes</small></span></label><label><input type="radio" name="theme" value="system" ${checked(settings.theme === 'system')} /><span>◫<strong>System</strong><small>Match your device</small></span></label></div>
@@ -1308,7 +1294,7 @@ function settingsView() {
         <div class="text-size-options" role="radiogroup" aria-label="Feed text size"><label><input type="radio" name="textSize" value="small" ${checked(settings.textSize === 'small')} /><span>Small</span></label><label><input type="radio" name="textSize" value="medium" ${checked(settings.textSize === 'medium')} /><span>Medium</span></label><label><input type="radio" name="textSize" value="large" ${checked(settings.textSize === 'large')} /><span>Large</span></label></div>
       </section>
       <section class="settings-section"><div class="settings-section-head"><div><span class="settings-icon">✎</span><div><h2>Profile customization</h2><p>Build a profile that feels distinctly yours.</p></div></div></div>
-        <div class="profile-live-preview" id="profilePreview" style="--profile-accent:${escapeHtml(state.profile.themeColor)}"><div class="preview-banner" id="bannerPreview">${state.profile.bannerUrl ? `<img src="${escapeHtml(state.profile.bannerUrl)}" alt="Banner preview" />` : ''}</div><div>${avatarMarkup('preview-avatar')}<span><strong id="previewName">${escapeHtml(state.profile.displayName)}</strong><small id="previewStatus">${escapeHtml(state.profile.status)}</small></span><b>✦ ${Number(state.profile.vibeScore || 0).toLocaleString()}</b></div></div>
+        <div class="profile-live-preview" id="profilePreview" style="--profile-accent:${escapeHtml(state.profile.themeColor)}"><div class="preview-banner" id="bannerPreview">${state.profile.bannerUrl ? `<img src="${escapeHtml(state.profile.bannerUrl)}" alt="Banner preview" />` : ''}</div><div>${avatarMarkup('preview-avatar')}<span><strong id="previewName">${escapeHtml(state.profile.displayName)}</strong><small id="previewStatus">${escapeHtml(state.profile.status)}</small></span><b>${Number(state.profile.heatScore || 0).toLocaleString()} HEAT</b></div></div>
         <div class="form-grid"><label>Display name<input name="displayName" maxlength="40" value="${escapeHtml(state.profile.displayName)}" required /></label><label>Username<input name="handle" maxlength="30" value="${escapeHtml(state.profile.handle)}" required /></label><label>Pronouns<input name="pronouns" maxlength="40" value="${escapeHtml(state.profile.pronouns)}" placeholder="e.g. they/them" /></label><label>Online status<select name="status"><option value="online" ${state.profile.status === 'online' ? 'selected' : ''}>Online</option><option value="idle" ${state.profile.status === 'idle' ? 'selected' : ''}>Idle</option><option value="dnd" ${state.profile.status === 'dnd' ? 'selected' : ''}>Do Not Disturb</option><option value="invisible" ${state.profile.status === 'invisible' ? 'selected' : ''}>Invisible</option></select></label></div>
         <div class="form-grid"><label>Profile banner<input id="bannerUpload" type="file" accept="image/*" /><small>PNG, JPG, GIF, or WebP. Maximum 2 MB.</small></label><label>Avatar or animated GIF<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><small>Animated GIF avatars are supported. Maximum 2 MB.</small></label><label>Theme color<div class="color-control"><input name="themeColor" type="color" value="${escapeHtml(state.profile.themeColor)}" /><output id="colorHex">${escapeHtml(state.profile.themeColor)}</output></div></label><label>Avatar frame<select name="avatarFrame">${['none','spark','gold','violet','flame'].map(frame => `<option value="${frame}" ${state.profile.avatarFrame === frame ? 'selected' : ''}>${frame}</option>`).join('')}</select></label></div>
         <input type="hidden" name="bannerUrl" value="${escapeHtml(state.profile.bannerUrl)}" /><input type="hidden" name="avatarUrl" value="${escapeHtml(state.profile.avatarUrl)}" />
@@ -1350,7 +1336,7 @@ function adminControlView() {
   const tabs = [
     ['overview', 'Overview'], ['people', 'People & Staff'], ['content', 'Content'],
     ['anonymous', 'Anonymous'], ['topics', 'Topics'], ['guilds', 'Guilds'],
-    ['battles', 'Battles'], ['predictions', 'Predictions'], ['reports', 'Reports'], ['audit', 'Audit Log']
+    ['battles', 'Battles'], ['reports', 'Reports'], ['audit', 'Audit Log']
   ];
   const summary = [
     ['People', state.leaderboard.length], ['Posts', state.posts.length], ['Signals', state.anonymousPosts.length],
@@ -1363,15 +1349,13 @@ function adminControlView() {
   const anonymous = `<section class="admin-console-block"><header><div><span class="section-kicker">MODERATION</span><h2>Anonymous Signals</h2></div><b>${state.anonymousPosts.length}</b></header><p class="admin-section-copy">Public responses never contain the real author. Use “Inspect Signal” from a post menu only when moderation requires it; every lookup is permanently audited.</p><div class="admin-signal-grid">${state.anonymousPosts.map(post => `<article><span>${escapeHtml(post.anonymousCode || 'SIGNAL')}</span><strong>${escapeHtml(post.text.slice(0, 110))}</strong><button type="button" data-open-take="${post.id}">Open Signal</button></article>`).join('') || '<p>No anonymous posts require review.</p>'}</div></section>`;
   const guildAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">COMMUNITIES</span><h2>Guild oversight</h2></div><b>${state.guilds.length}</b></header><div class="admin-entity-grid">${state.guilds.map(guild => `<article><span class="avatar">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div><strong>${escapeHtml(guild.name)}</strong><small>${Number(guild.memberCount || 0)} members · ${escapeHtml(guild.privacy || 'public')}</small></div><button type="button" data-open-guild="${guild.id}">Open</button></article>`).join('') || '<p>No guilds yet.</p>'}</div></section>`;
   const battleAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">TOURNAMENTS</span><h2>Battle control</h2></div><button class="primary-action" type="button" data-route-button="battles">Open public Battles</button></header><div class="admin-entity-grid">${state.battles.map(battle => `<article><span class="admin-entity-icon">⚔</span><div><strong>${escapeHtml(battle.title)}</strong><small>${battle.size}-entry · ${escapeHtml(battle.status)}</small></div><b>${escapeHtml(battle.status)}</b></article>`).join('') || '<p>No Battles have been created yet.</p>'}</div></section>`;
-  const predictionPosts = [...state.posts, ...state.anonymousPosts].filter(post => post.lifecycle?.prediction && post.lifecycle.prediction.status !== 'none');
-  const predictions = `<section class="admin-console-block"><header><div><span class="section-kicker">VIBE TOKENS</span><h2>Predictions</h2></div><b>${predictionPosts.length}</b></header><div class="admin-entity-grid">${predictionPosts.map(post => `<article><span class="admin-entity-icon">◎</span><div><strong>${escapeHtml(post.text.slice(0, 100))}</strong><small>${escapeHtml(post.lifecycle.prediction.status)} · ${escapeHtml(post.authorHandle)}</small></div><button type="button" data-open-take="${post.id}">Open</button></article>`).join('') || '<p>No predictions are running.</p>'}</div></section>`;
   const audit = `<section class="admin-console-block"><header><div><span class="section-kicker">IMMUTABLE HISTORY</span><h2>Audit Log</h2></div><b>${controls.audit.length}</b></header><div class="admin-audit-table">${controls.audit.map(item => `<article><span>${escapeHtml(item.action)}</span><small>${escapeHtml(item.targetType)} · ${escapeHtml(item.targetId || 'platform')}</small><strong>${escapeHtml(item.actor?.displayName || 'Owner')}</strong><time>${new Date(item.createdAt).toLocaleString()}</time></article>`).join('') || '<p>No audited actions yet.</p>'}</div></section>`;
   const aboutEditor = `<form class="admin-console-block admin-about-editor" id="adminAboutForm"><span class="section-kicker">PROJECT WALL</span><h2>Publish official update</h2><input name="title" maxlength="120" required placeholder="Update title" /><textarea name="body" maxlength="4000" required placeholder="Truthful project update"></textarea><div><select name="label"><option value="building">Building</option><option value="shipped">Shipped</option><option value="milestone">Milestone</option><option value="coming_soon">Coming soon</option></select><label><input name="pinned" type="checkbox" /> Pin update</label></div><button class="primary-action" type="submit">Publish update</button></form>`;
   const reports = `<section class="admin-console-block">${emptyState('⚑', 'No open reports', 'User reports and their moderation status will appear here without exposing unrelated private account data.')}</section>`;
   const views = {
     overview: `<section class="admin-overview-grid">${summary.map(([label, value]) => `<article><small>${label}</small><strong>${Number(value).toLocaleString()}</strong></article>`).join('')}</section>${featureControls}${botAdminControlView()}`,
     people: staff, content: `${adminPostConsoleView()}${aboutEditor}`, anonymous, topics: topicManager,
-    guilds: guildAdmin, battles: battleAdmin, predictions, reports, audit
+    guilds: guildAdmin, battles: battleAdmin, reports, audit
   };
   return `<section class="admin-console-shell"><header><span class="section-kicker">ADMIN CONSOLE · OWNER ONLY</span><h1>${escapeHtml(tabs.find(([key]) => key === section)?.[1] || 'Overview')}</h1><p>Private Callout operations, kept separate from website analytics.</p></header><nav class="admin-console-tabs">${tabs.map(([key, label]) => `<button type="button" class="${section === key ? 'active' : ''}" data-admin-section="${key}">${label}</button>`).join('')}</nav><div class="admin-console-view">${views[section] || views.overview}</div></section>`;
 }
@@ -1420,11 +1404,11 @@ function authView() {
     <details class="reset-panel"><summary>Forgot your password?</summary><form id="resetRequestForm"><label>Email<input type="email" name="email" required /></label><button class="quiet-action" type="submit">Request reset</button></form><form id="resetConfirmForm" hidden><label>Email<input type="email" name="email" required /></label><label>Reset token<input name="token" required /></label><label>New password<input type="password" name="password" minlength="8" required /></label><button class="primary-action" type="submit">Update password</button></form></details>`;
 }
 
-const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, 'vibe-progress': vibeProgressView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
+const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, heat: heatLevelView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
 
 function renderRoute() {
   const route = currentRoute();
-  document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.route === route || (['customize','accessibility'].includes(route) && item.dataset.route === 'settings') || (route === 'take' && item.dataset.route === 'home') || (route === 'guild' && item.dataset.route === 'guilds') || (route === 'vibe-progress' && item.dataset.route === 'profile')));
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.route === route || (['customize','accessibility'].includes(route) && item.dataset.route === 'settings') || (route === 'take' && item.dataset.route === 'home') || (route === 'guild' && item.dataset.route === 'guilds') || (route === 'heat' && item.dataset.route === 'profile')));
   document.querySelector('#sidebar').classList.remove('open');
   mainContent.innerHTML = viewRenderers[route]();
   mainContent.dataset.route = route;
@@ -1432,7 +1416,7 @@ function renderRoute() {
   updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
-  renderProfileCringeBadge();
+  renderProfileHeatFrame();
   if (routeAllowsAds()) initializeAds(mainContent);
   trackPageView();
   mainContent.focus({ preventScroll: true });
@@ -1508,17 +1492,6 @@ function bindViewInteractions(route) {
   document.querySelectorAll('[data-close-post-state]').forEach(button => button.addEventListener('click', event => {
     event.stopPropagation(); state.expandedPostState = ''; renderRoute();
   }));
-  document.querySelectorAll('[data-predict]').forEach(button => button.addEventListener('click', async () => {
-    if (!sessionUser) return navigate('auth');
-    const raw = window.prompt('How many Vibe Tokens? Enter 5–25.', '5');
-    if (raw === null) return;
-    const amount = Number(raw);
-    if (!Number.isInteger(amount) || amount < 5 || amount > 25) return showToast('Choose a whole number from 5 to 25.');
-    try {
-      const payload = await apiFetch(`/api/posts/${button.dataset.predictionPost}/prediction/wager`, { method: 'POST', body: JSON.stringify({ choice: button.dataset.predict, amount }) });
-      state.wallet = payload.wallet || state.wallet; await hydratePosts(); showToast(`${amount} Vibe Tokens placed.`);
-    } catch (error) { showToast(error.message); }
-  }));
   document.querySelectorAll('[data-defense-form]').forEach(form => form.addEventListener('submit', async event => {
     event.preventDefault();
     try {
@@ -1552,14 +1525,6 @@ function bindViewInteractions(route) {
       state.battles = state.battles.map(item => String(item.id) === String(battle.id) ? battle : item); renderRoute(); showToast('Battle vote recorded.');
     } catch (error) { showToast(error.message); }
   }));
-  document.querySelector('[data-claim-tokens]')?.addEventListener('click', async () => {
-    try {
-      const { wallet } = await apiFetch('/api/wallet/daily-claim', { method: 'POST' });
-      state.wallet = wallet;
-      renderRoute();
-      showToast(wallet.claimed === false ? 'Daily tokens were already claimed.' : '20 Vibe Tokens claimed.');
-    } catch (error) { showToast(error.message); }
-  });
   document.querySelector('#pinboardForm')?.addEventListener('submit', async event => {
     event.preventDefault();
     const form = event.currentTarget; const text = sanitizeInput(form.elements.text.value); const url = form.elements.attachment.value.trim();
@@ -1597,6 +1562,7 @@ function bindViewInteractions(route) {
   document.querySelector('[data-open-settings]')?.addEventListener('click', () => navigate('settings'));
   document.querySelector('[data-go-auth]')?.addEventListener('click', () => navigate('auth'));
   document.querySelectorAll('[data-ranking-view]').forEach(button => button.addEventListener('click', () => { state.leaderboardView = button.dataset.rankingView; renderRoute(); }));
+  document.querySelectorAll('[data-open-heat]').forEach(button => button.addEventListener('click', () => navigate('heat')));
   document.querySelectorAll('[data-analytics-days]').forEach(button => button.addEventListener('click', async () => { state.analyticsDays = Number(button.dataset.analyticsDays); state.analytics = null; renderRoute(); await hydrateAnalytics(); renderRoute(); }));
   document.querySelector('[data-refresh-analytics]')?.addEventListener('click', async () => { state.analytics = null; state.analyticsError = ''; renderRoute(); await hydrateAnalytics(); renderRoute(); });
   document.querySelector('[data-refresh-admin]')?.addEventListener('click', async () => { state.adminError = ''; renderRoute(); await hydrateAdminControl(); renderRoute(); });
@@ -1845,15 +1811,6 @@ function openPostMenu(id) {
   download.type = 'button'; download.dataset.downloadPost = ''; download.innerHTML = '<span>↓</span><span><strong>Download</strong><small>Export this live take as an image</small></span>';
   menu.insertBefore(download, menu.querySelector('[data-share-post]'));
   download.addEventListener('click', () => openPostDownload(post));
-  if (isAuthor && (!post.lifecycle?.prediction || post.lifecycle.prediction.status === 'none')) {
-    const prediction = document.createElement('button');
-    prediction.type = 'button'; prediction.innerHTML = '<span>◎</span><span><strong>Open Prediction</strong><small>Let people wager Vibe Tokens on the result</small></span>';
-    menu.insertBefore(prediction, menu.querySelector('[data-share-post]'));
-    prediction.addEventListener('click', async () => {
-      try { closeActionDialog(); await apiFetch(`/api/posts/${post.databaseId}/prediction`, { method: 'POST' }); await hydratePosts(); showToast('Prediction is open for 12 hours.'); }
-      catch (error) { showToast(error.message); }
-    });
-  }
   if (isAuthor || sessionUser?.isAdmin) {
     const viral = document.createElement('button');
     viral.type = 'button'; viral.dataset.viralVideoPost = ''; viral.innerHTML = '<span>▶</span><span><strong>Viral video</strong><small>Generate a 7-second vertical share card</small></span>';
@@ -2717,11 +2674,9 @@ async function saveSettings(event) {
     themeColor: formData.get('themeColor'),
     avatarFrame: formData.get('avatarFrame'),
     profileEffect: formData.get('profileEffect'),
-    vibeAura: formData.get('vibeAura'),
     profileBackground: formData.get('profileBackground'),
-    profileLayout: [...document.querySelectorAll('[data-layout-item]')].map(item => item.dataset.layoutItem),
+    profileLayout: ['posts', 'guilds', 'heat'],
     showcaseMode: formData.get('showcaseMode'),
-    featuredBadges: formData.getAll('featuredBadge').slice(0, 3),
     pronouns: sanitizeInput(formData.get('pronouns')),
     status: formData.get('status'),
     socialLinks: {
@@ -2733,7 +2688,7 @@ async function saveSettings(event) {
   state.profile.handle = `@${state.profile.handle.slice(1).replace(/[^a-z0-9_]/g, '').slice(0, 29)}`;
   try {
     if (sessionUser) {
-      const payload = await apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl, bio: state.profile.bio, bannerUrl: state.profile.bannerUrl, themeColor: state.profile.themeColor, avatarFrame: state.profile.avatarFrame, profileEffect: state.profile.profileEffect, vibeAura: state.profile.vibeAura, profileBackground: state.profile.profileBackground, profileLayout: state.profile.profileLayout, showcaseMode: state.profile.showcaseMode, featuredBadges: state.profile.featuredBadges || [], featuredPosts: state.profile.featuredPosts || [], pinnedGuilds: state.profile.pinnedGuilds || [], socialLinks: state.profile.socialLinks, pronouns: state.profile.pronouns, status: state.profile.status, preferences: { theme: state.settings.theme, palette: state.settings.palette, reducedMotion: state.settings.reducedMotion, feedDensity: state.settings.feedDensity, voteEffect: state.settings.voteEffect, notificationSound: state.settings.notificationSound, widgetOrder: state.settings.widgetOrder, hiddenTopics: state.settings.hiddenTopics, notifications: state.settings.notifications, notificationDelivery: state.settings.notificationDelivery, directMessages: state.settings.directMessages, textSize: state.settings.textSize } }) });
+      const payload = await apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl, bio: state.profile.bio, bannerUrl: state.profile.bannerUrl, themeColor: state.profile.themeColor, avatarFrame: state.profile.avatarFrame, profileEffect: state.profile.profileEffect, profileBackground: state.profile.profileBackground, profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: state.profile.showcaseMode, featuredPosts: state.profile.featuredPosts || [], pinnedGuilds: state.profile.pinnedGuilds || [], socialLinks: state.profile.socialLinks, pronouns: state.profile.pronouns, status: state.profile.status, preferences: { theme: state.settings.theme, palette: state.settings.palette, reducedMotion: state.settings.reducedMotion, feedDensity: state.settings.feedDensity, voteEffect: state.settings.voteEffect, notificationSound: state.settings.notificationSound, widgetOrder: state.settings.widgetOrder, hiddenTopics: state.settings.hiddenTopics, notifications: state.settings.notifications, notificationDelivery: state.settings.notificationDelivery, directMessages: state.settings.directMessages, textSize: state.settings.textSize } }) });
       applySessionUser(payload.user); await hydrateOwnProfile();
     }
     persist(); applyDisplaySettings(); document.querySelector('#headerName').textContent = state.profile.displayName; renderRoute(); showToast('Settings saved.');
@@ -2750,7 +2705,6 @@ document.querySelectorAll('[data-route]').forEach(link => link.addEventListener(
   navigate(link.dataset.route);
 }));
 document.querySelectorAll('[data-route-button]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.routeButton)));
-document.querySelector('[data-personal-cringe]')?.addEventListener('click', () => { state.leaderboardView = 'personal'; navigate('leaderboards'); });
 document.querySelectorAll('[data-leaderboard-kind]').forEach(button => button.addEventListener('click', () => {
   state.railLeaderboardKind = button.dataset.leaderboardKind;
   updateAccountChrome();

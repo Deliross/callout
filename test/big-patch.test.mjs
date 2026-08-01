@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
-import { createPost, createUser, listAnonymousPosts, listPosts } from '../server/repository.mjs';
+import { createPost, createUser, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
 import { createTopic, featureEnabled, getAbout, heatTier, listFeatureControls, topicAllowsWrites } from '../server/bigPatch.mjs';
 import { schemas } from '../server/security.mjs';
 
 test('all coordinated Big Patch capabilities have independent beta flags', async () => {
-  for (const key of ['topics', 'anonymous', 'postStates', 'pinboards', 'battles', 'predictions', 'heatFrames', 'aboutWall', 'notificationUi']) {
+  for (const key of ['topics', 'anonymous', 'postStates', 'pinboards', 'battles', 'heatFrames', 'aboutWall', 'notificationUi']) {
     assert.equal(typeof featureFlags[key], 'boolean');
     assert.equal(await featureEnabled(key), featureFlags[key]);
   }
@@ -15,9 +15,15 @@ test('all coordinated Big Patch capabilities have independent beta flags', async
 });
 
 test('Heat frames use all six automatic tiers', () => {
-  assert.deepEqual([0, 10, 50, 150, 400, 1000].map(score => heatTier(score).className), [
+  assert.deepEqual([0, 1000, 5000, 15000, 40000, 100000].map(score => heatTier(score).className), [
     'heat-fresh', 'heat-mild', 'heat-spicy', 'heat-certified', 'heat-firestarter', 'heat-hall'
   ]);
+});
+
+test('Heat Streak trophies replace the legacy badge system', () => {
+  const trophies = heatTrophies(14);
+  assert.deepEqual(trophies.filter(trophy => trophy.unlocked).map(trophy => trophy.key), ['first-spark', 'week-on-fire', 'heatwave']);
+  assert.equal(trophies.some(trophy => /badge/i.test(trophy.name)), false);
 });
 
 test('anonymous posts are isolated from the normal feed and never expose an account id', async () => {
@@ -54,9 +60,8 @@ test('About content is truthful project copy with all permanent sections', async
   assert.ok(about.sections.every(section => !/team of|employee|founder/i.test(section.body)));
 });
 
-test('Big Patch validators enforce token, battle, Topic and Pinboard limits', () => {
-  assert.equal(schemas.predictionWager.validate({ choice: 'alright', amount: 25 }).error, undefined);
-  assert.ok(schemas.predictionWager.validate({ choice: 'cringe', amount: 26 }).error);
+test('Big Patch validators enforce battle, Topic and Pinboard limits', () => {
+  assert.equal('predictionWager' in schemas, false);
   assert.equal(schemas.battle.validate({ title: 'Final Four', size: 4, status: 'live', guild: null, entries: ['A', 'B', 'C', 'D'].map(label => ({ label, imageUrl: '' })) }).error, undefined);
   assert.ok(schemas.battle.validate({ title: 'Broken', size: 8, status: 'live', entries: [{ label: 'Only one', imageUrl: '' }] }).error);
   assert.ok(schemas.pinboardEntry.validate({ text: '', attachments: [] }).error);

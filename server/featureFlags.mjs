@@ -10,7 +10,6 @@ export const featureFlags = Object.freeze({
   postStates: process.env.FEATURE_POST_STATES == null || truthy.has(String(process.env.FEATURE_POST_STATES).toLowerCase()),
   pinboards: process.env.FEATURE_PINBOARDS == null || truthy.has(String(process.env.FEATURE_PINBOARDS).toLowerCase()),
   battles: process.env.FEATURE_BATTLES == null || truthy.has(String(process.env.FEATURE_BATTLES).toLowerCase()),
-  predictions: process.env.FEATURE_PREDICTIONS == null || truthy.has(String(process.env.FEATURE_PREDICTIONS).toLowerCase()),
   heatFrames: process.env.FEATURE_HEAT_FRAMES == null || truthy.has(String(process.env.FEATURE_HEAT_FRAMES).toLowerCase()),
   aboutWall: process.env.FEATURE_ABOUT_WALL == null || truthy.has(String(process.env.FEATURE_ABOUT_WALL).toLowerCase()),
   notificationUi: process.env.FEATURE_NOTIFICATION_UI == null || truthy.has(String(process.env.FEATURE_NOTIFICATION_UI).toLowerCase())

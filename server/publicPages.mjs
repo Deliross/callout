@@ -25,7 +25,7 @@ const pageCopy = {
       ['Vote once, then discuss', 'Signed-in members can choose Based or Hot Take on another person\'s post. A vote can be changed, but each account has only one active verdict per post. The live bar shows the split using votes stored on the server.'],
       ['Add a Take', 'Replies are called Takes. Open a post to read the complete discussion, add a reply, or respond in a nested thread. Main feeds stay compact, while the detailed post view keeps the conversation in context.'],
       ['Save and discover', 'Save a post to your account for later, use Trending to find discussions receiving genuine activity, and search for people, topics, posts, and public Guilds. Private messages and saved items are visible only to the signed-in account.'],
-      ['Voice XP and Heat', 'Voice XP recognizes constructive participation such as posting and replying. Heat reflects how often the community chooses Hot Take on your posts. These are separate signals: one measures activity while the other describes the public response to your opinions.']
+      ['Heat Level', 'Heat Level recognizes meaningful participation such as publishing posts, adding Takes, voting, and reacting. Your Heat Streak records the days you actively contribute, while Based and Hot Take leaderboards remain separate community rankings.']
     ]
   },
   guidelines: {

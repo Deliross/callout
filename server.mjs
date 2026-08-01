@@ -17,13 +17,12 @@ import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
 import { publicPage, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
 import {
-  adjustVibeTokens, claimDailyTokens, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
+  createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
-  listFeatureControls, listStaff, listTopics, openPrediction, openRedemption,
-  placePredictionWager, postAllowsWrites, commentAllowsWrites, migrateBigPatchDefaults, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
+  listFeatureControls, listStaff, listTopics, openRedemption,
+  postAllowsWrites, commentAllowsWrites, migrateBigPatchDefaults, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
   setFeatureControl, setStaffRole, submitDefense, topicAllowsWrites, updateAboutUpdate, updateTopic, voteBattle, voteRedemption,
-  featureEnabled,
-  walletSummary
+  featureEnabled
 } from './server/bigPatch.mjs';
 import {
   ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies, comparePassword, createPasswordResetToken,
@@ -243,9 +242,6 @@ app.patch('/api/admin/features/:key', requireAuth, requireOwner, validate(schema
 });
 app.get('/api/admin/anonymous/:id', requireFeature('anonymous'), requireAuth, requireModerator, async (req, res, next) => {
   try { const identity = await inspectAnonymousPost(req.params.id, req.userId); if (!identity) return res.status(404).json({ error: 'Anonymous post not found.' }); res.set('Cache-Control', 'no-store'); res.json({ identity }); } catch (error) { next(error); }
-});
-app.post('/api/admin/wallet/:id', requireFeature('predictions'), requireAuth, requireAdmin, validate(schemas.adminTokenAdjustment), async (req, res, next) => {
-  try { const wallet = await adjustVibeTokens(req.userId, req.params.id, req.body.amount, req.body.reason); if (!wallet) return res.status(400).json({ error: 'Adjustment would create an invalid balance.' }); res.json({ wallet }); } catch (error) { next(error); }
 });
 app.post('/api/embeds/preview', embedLimiter, requireAuth, validate(schemas.embedPreview), async (req, res, next) => {
   try { res.json({ embed: await buildExternalEmbed(req.body.url) }); }
@@ -505,20 +501,6 @@ app.post('/api/posts/:id/reactions', requireAuth, requireWritablePost, validate(
 app.post('/api/posts/:id/reveal', requireFeature('anonymous'), requireAuth, requireWritablePost, async (req, res, next) => {
   try { const result = await revealAnonymousPost(req.params.id, req.userId); if (!result) return res.status(404).json({ error: 'Anonymous post not found or not owned by you.' }); res.json(result); } catch (error) { next(error); }
 });
-app.post('/api/posts/:id/prediction', requireFeature('predictions'), requireAuth, requireWritablePost, async (req, res, next) => {
-  try { const post = await openPrediction(req.params.id, req.userId); if (!post) return res.status(409).json({ error: 'Only the author can open one prediction on this post.' }); res.json({ post }); } catch (error) { next(error); }
-});
-app.post('/api/posts/:id/prediction/wager', requireFeature('predictions'), requireAuth, requireWritablePost, validate(schemas.predictionWager), async (req, res, next) => {
-  try {
-    const result = await placePredictionWager(req.params.id, req.userId, req.body.choice, req.body.amount);
-    if (!result) return res.status(404).json({ error: 'Prediction not found.' });
-    if (result.closed) return res.status(409).json({ error: 'This prediction is closed.' });
-    if (result.limit) return res.status(429).json({ error: 'Daily wager limit reached.' });
-    if (result.funds) return res.status(400).json({ error: 'Not enough Vibe Tokens.' });
-    if (result.duplicate) return res.status(409).json({ error: 'You already predicted this result.' });
-    res.status(201).json(result);
-  } catch (error) { next(error); }
-});
 app.post('/api/posts/:id/defense', requireFeature('postStates'), requireAuth, requireWritablePost, validate(schemas.defense), async (req, res, next) => {
   try {
     const post = await submitDefense(req.params.id, req.userId, req.body.content);
@@ -541,12 +523,6 @@ app.post('/api/posts/:id/redemption/vote', requireFeature('postStates'), require
     if (!post || post.closed) return res.status(409).json({ error: 'This Redemption vote is closed.' });
     res.json({ post });
   } catch (error) { next(error); }
-});
-app.get('/api/wallet', requireFeature('predictions'), requireAuth, async (req, res, next) => {
-  try { res.json({ wallet: await walletSummary(req.userId) }); } catch (error) { next(error); }
-});
-app.post('/api/wallet/daily-claim', requireFeature('predictions'), requireAuth, async (req, res, next) => {
-  try { res.json({ wallet: await claimDailyTokens(req.userId) }); } catch (error) { next(error); }
 });
 app.post('/api/posts/:id/poll-vote', requireFeature('richComposer'), requireAuth, requireWritablePost, validate(schemas.pollVote), async (req, res, next) => {
   try {

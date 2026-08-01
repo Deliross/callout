@@ -25,25 +25,6 @@ const topicSchema = new mongoose.Schema({
   vaultedAt: { type: Date, default: null }
 }, { timestamps: true });
 
-const wagerSchema = new mongoose.Schema({
-  post: { type: mongoose.Schema.Types.ObjectId, ref: 'Post', required: true, index: true },
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  choice: { type: String, enum: ['alright', 'cringe'], required: true },
-  amount: { type: Number, min: 5, max: 25, required: true },
-  status: { type: String, enum: ['open', 'won', 'lost', 'refunded'], default: 'open' },
-  payout: { type: Number, default: 0, min: 0 }
-}, { timestamps: true });
-wagerSchema.index({ post: 1, user: 1 }, { unique: true });
-
-const tokenTransactionSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  amount: { type: Number, required: true },
-  type: { type: String, enum: ['welcome', 'daily_claim', 'wager', 'payout', 'refund', 'admin_adjustment'], required: true },
-  reference: { type: String, default: '', maxlength: 120 },
-  balanceAfter: { type: Number, min: 0, required: true },
-  idempotencyKey: { type: String, default: '', maxlength: 120, index: true }
-}, { timestamps: true });
-
 const battleSchema = new mongoose.Schema({
   title: { type: String, required: true, maxlength: 100 },
   guild: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
@@ -95,8 +76,6 @@ const featureOverrideSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 export const Topic = mongoose.models.Topic || mongoose.model('Topic', topicSchema);
-export const PredictionWager = mongoose.models.PredictionWager || mongoose.model('PredictionWager', wagerSchema);
-export const VibeTokenTransaction = mongoose.models.VibeTokenTransaction || mongoose.model('VibeTokenTransaction', tokenTransactionSchema);
 export const Battle = mongoose.models.Battle || mongoose.model('Battle', battleSchema);
 export const AboutUpdate = mongoose.models.AboutUpdate || mongoose.model('AboutUpdate', aboutUpdateSchema);
 export const PlatformAudit = mongoose.models.PlatformAudit || mongoose.model('PlatformAudit', platformAuditSchema);
@@ -104,8 +83,6 @@ export const FeatureOverride = mongoose.models.FeatureOverride || mongoose.model
 
 const memory = {
   topics: new Map(),
-  wagers: new Map(),
-  transactions: [],
   battles: new Map(),
   about: new Map(),
   audit: [],
@@ -129,12 +106,12 @@ const now = () => new Date();
 
 export function heatTier(score = 0) {
   const tiers = [
-    { level: 1, name: 'Fresh Take', className: 'heat-fresh', threshold: 0, next: 10 },
-    { level: 2, name: 'Mild Heat', className: 'heat-mild', threshold: 10, next: 50 },
-    { level: 3, name: 'Spicy Take', className: 'heat-spicy', threshold: 50, next: 150 },
-    { level: 4, name: 'Certified Hot Take', className: 'heat-certified', threshold: 150, next: 400 },
-    { level: 5, name: 'Firestarter', className: 'heat-firestarter', threshold: 400, next: 1000 },
-    { level: 6, name: 'Hall of Heat', className: 'heat-hall', threshold: 1000, next: null }
+    { level: 1, name: 'Fresh Take', className: 'heat-fresh', threshold: 0, next: 1000 },
+    { level: 2, name: 'Mild Heat', className: 'heat-mild', threshold: 1000, next: 5000 },
+    { level: 3, name: 'Spicy Take', className: 'heat-spicy', threshold: 5000, next: 15000 },
+    { level: 4, name: 'Certified Hot Take', className: 'heat-certified', threshold: 15000, next: 40000 },
+    { level: 5, name: 'Firestarter', className: 'heat-firestarter', threshold: 40000, next: 100000 },
+    { level: 6, name: 'Hall of Heat', className: 'heat-hall', threshold: 100000, next: null }
   ];
   return [...tiers].reverse().find(tier => Number(score) >= tier.threshold) || tiers[0];
 }
@@ -278,10 +255,8 @@ function lifecycleView(post) {
   const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
   const hotPercent = total ? Number(post.cringeVotes || 0) / total * 100 : 0;
   const lifecycle = post.lifecycle || {};
-  const prediction = lifecycle.prediction || { status: 'none' };
   const defense = lifecycle.defense || { status: 'none' };
   const redemption = lifecycle.redemption || { status: 'none', votes: [] };
-  if (prediction.status === 'open' && new Date(prediction.locksAt) <= now()) prediction.status = new Date(prediction.settlesAt) <= now() ? 'settled' : 'locked';
   if ((!defense.status || defense.status === 'none') && Date.now() - createdAt.getTime() >= 24 * 60 * 60 * 1000 && total >= 10 && hotPercent >= 60) defense.status = 'eligible';
   if (redemption.status === 'open' && new Date(redemption.closesAt) <= now()) {
     const votes = redemption.votes || [];
@@ -291,85 +266,13 @@ function lifecycleView(post) {
   let active = 'none';
   if (redemption.status && redemption.status !== 'none') active = 'redemption';
   else if (defense.status && defense.status !== 'none') active = 'defense';
-  else if (prediction.status && prediction.status !== 'none') active = 'prediction';
-  return { active, prediction, defense, redemption };
+  return { active, defense, redemption };
 }
 
 export function enrichPostLifecycle(post) {
   const value = plain(post);
   value.lifecycle = lifecycleView(value);
   return value;
-}
-
-export async function openPrediction(postIdValue, userId) {
-  const locksAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
-  const settlesAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  if (!connected()) return null;
-  const post = await Post.findOneAndUpdate(
-    { _id: postIdValue, author: userId, 'lifecycle.prediction.status': { $in: ['none', null] } },
-    { 'lifecycle.prediction': { status: 'open', locksAt, settlesAt, outcome: '' } },
-    { new: true }
-  );
-  return post ? enrichPostLifecycle(post) : null;
-}
-
-async function tokenBalanceChange(userId, amount, type, reference, idempotencyKey = '') {
-  if (!connected()) return null;
-  if (idempotencyKey && await VibeTokenTransaction.exists({ idempotencyKey })) return User.findById(userId).select('vibeTokens').lean();
-  const user = await User.findOneAndUpdate({ _id: userId, vibeTokens: { $gte: Math.max(0, -amount) } }, { $inc: { vibeTokens: amount } }, { new: true });
-  if (!user) return null;
-  await VibeTokenTransaction.create({ user: userId, amount, type, reference, balanceAfter: user.vibeTokens, idempotencyKey });
-  return user;
-}
-
-export async function placePredictionWager(postIdValue, userId, choice, amount) {
-  if (!connected()) return null;
-  const post = await Post.findById(postIdValue);
-  if (!post || lifecycleView(post).prediction.status !== 'open' || new Date(post.lifecycle.prediction.locksAt) <= now()) return { closed: true };
-  const day = new Date(); day.setHours(0, 0, 0, 0);
-  const today = await PredictionWager.aggregate([{ $match: { user: new mongoose.Types.ObjectId(userId), createdAt: { $gte: day } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
-  if (Number(today[0]?.total || 0) + amount > 50) return { limit: true };
-  const debit = await tokenBalanceChange(userId, -amount, 'wager', postIdValue, `wager:${postIdValue}:${userId}`);
-  if (!debit) return { funds: true };
-  try {
-    const wager = await PredictionWager.create({ post: postIdValue, user: userId, choice, amount });
-    return { wager: plain(wager), balance: debit.vibeTokens };
-  } catch (error) {
-    await tokenBalanceChange(userId, amount, 'refund', postIdValue, `wager-refund:${postIdValue}:${userId}`);
-    if (error?.code === 11000) return { duplicate: true };
-    throw error;
-  }
-}
-
-export async function claimDailyTokens(userId) {
-  if (!connected()) return null;
-  const user = await User.findById(userId);
-  if (!user) return null;
-  const last = user.lastTokenClaimAt ? new Date(user.lastTokenClaimAt) : null;
-  if (last && last.toDateString() === now().toDateString()) return { claimed: false, balance: user.vibeTokens, nextAt: new Date(last.getTime() + 24 * 60 * 60 * 1000) };
-  user.lastTokenClaimAt = now();
-  user.vibeTokens = Number(user.vibeTokens || 0) + 20;
-  await user.save();
-  await VibeTokenTransaction.create({ user: userId, amount: 20, type: 'daily_claim', reference: 'daily', balanceAfter: user.vibeTokens, idempotencyKey: `daily:${userId}:${now().toISOString().slice(0, 10)}` });
-  return { claimed: true, balance: user.vibeTokens };
-}
-
-export async function walletSummary(userId) {
-  if (!connected()) return { balance: 100, dailyWagered: 0, transactions: [] };
-  const day = new Date(); day.setHours(0, 0, 0, 0);
-  const [user, wagers, transactions] = await Promise.all([
-    User.findById(userId).select('vibeTokens lastTokenClaimAt').lean(),
-    PredictionWager.aggregate([{ $match: { user: new mongoose.Types.ObjectId(userId), createdAt: { $gte: day } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-    VibeTokenTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(30).lean()
-  ]);
-  return { balance: Number(user?.vibeTokens ?? 100), lastClaimAt: user?.lastTokenClaimAt || null, dailyWagered: Number(wagers[0]?.total || 0), transactions: transactions.map(plain) };
-}
-
-export async function adjustVibeTokens(actorId, userId, amount, reason) {
-  const user = await tokenBalanceChange(userId, amount, 'admin_adjustment', reason, `admin:${actorId}:${userId}:${crypto.randomUUID()}`);
-  if (!user) return null;
-  await recordPlatformAudit(actorId, 'wallet.adjusted', 'user', userId, { amount, reason });
-  return { balance: Number(user.vibeTokens || 0) };
 }
 
 export async function submitDefense(postIdValue, userId, content) {
@@ -552,37 +455,15 @@ export async function setStaffRole(ownerId, userId, staffRole) {
 }
 
 export async function processBigPatchLifecycles() {
-  if (!connected()) return { topics: 0, predictions: 0, redemptions: 0, battles: 0 };
+  if (!connected()) return { topics: 0, redemptions: 0, battles: 0 };
   const current = now();
-  const [topics, predictions, redemptions, battles] = await Promise.all([
+  const [topics, redemptions, battles] = await Promise.all([
     Topic.find({ state: { $ne: 'vaulted' }, endsAt: { $lte: current } }),
-    Post.find({ 'lifecycle.prediction.status': { $in: ['open', 'locked'] }, 'lifecycle.prediction.settlesAt': { $lte: current } }),
     Post.find({ 'lifecycle.redemption.status': 'open', 'lifecycle.redemption.closesAt': { $lte: current } }),
     Battle.find({ status: { $in: ['live', 'sudden_death'] } })
   ]);
   for (const topic of topics) {
     topic.state = 'vaulted'; topic.vaultedAt = topic.vaultedAt || current; await topic.save();
-  }
-  for (const post of predictions) {
-    const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
-    const outcome = total < 10 || Number(post.alrightVotes || 0) === Number(post.cringeVotes || 0)
-      ? 'refund'
-      : Number(post.alrightVotes || 0) > Number(post.cringeVotes || 0) ? 'alright' : 'cringe';
-    post.lifecycle.prediction.status = 'settled';
-    post.lifecycle.prediction.outcome = outcome;
-    await post.save();
-    const wagers = await PredictionWager.find({ post: post._id, status: 'open' });
-    for (const wager of wagers) {
-      if (outcome === 'refund') {
-        await tokenBalanceChange(wager.user, wager.amount, 'refund', postId(post), `settle-refund:${wager._id}`);
-        wager.status = 'refunded'; wager.payout = wager.amount;
-      } else if (wager.choice === outcome) {
-        const payout = wager.amount * 2;
-        await tokenBalanceChange(wager.user, payout, 'payout', postId(post), `settle-payout:${wager._id}`);
-        wager.status = 'won'; wager.payout = payout;
-      } else wager.status = 'lost';
-      await wager.save();
-    }
   }
   for (const post of redemptions) {
     const votes = post.lifecycle.redemption.votes || [];
@@ -627,24 +508,32 @@ export async function processBigPatchLifecycles() {
     if (changed) { await battle.save(); battleChanges += 1; }
   }
   await GuildMessage.deleteMany({ archivedAt: { $lte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } });
-  return { topics: topics.length, predictions: predictions.length, redemptions: redemptions.length, battles: battleChanges };
+  return { topics: topics.length, redemptions: redemptions.length, battles: battleChanges };
 }
 
 export async function migrateBigPatchDefaults() {
   if (!connected()) return { users: 0, posts: 0, guildMessages: 0 };
   const cycle = String(Math.floor(Date.now() / (5 * 60 * 60 * 1000)));
   const [users, posts, guildMessages] = await Promise.all([
-    User.updateMany({ vibeTokens: { $exists: false } }, { $set: { vibeTokens: 100 } }),
-    Post.updateMany({ lifecycle: { $exists: false } }, {
-      $set: {
-        anonymous: false,
-        lifecycle: {
-          prediction: { status: 'none', locksAt: null, settlesAt: null, outcome: '' },
-          defense: { status: 'none', content: '', submittedAt: null, editableUntil: null },
-          redemption: { status: 'none', opensAt: null, closesAt: null, votes: [] }
-        }
-      }
-    }),
+    User.collection.updateMany({}, [
+      { $set: {
+        heatScore: { $max: [0, { $ifNull: ['$heatScore', { $ifNull: ['$vibeScore', 0] }] }] },
+        heatStreakCurrent: { $ifNull: ['$heatStreakCurrent', 0] },
+        heatStreakLongest: { $ifNull: ['$heatStreakLongest', 0] },
+        heatLastActiveDate: { $ifNull: ['$heatLastActiveDate', ''] },
+        heatActivityDates: { $ifNull: ['$heatActivityDates', []] },
+        profileLayout: ['posts', 'guilds', 'heat']
+      } },
+      { $unset: ['vibeScore', 'vibeTokens', 'lastTokenClaimAt', 'vibeAura', 'featuredBadges'] }
+    ]),
+    Post.collection.updateMany({}, [
+      { $set: {
+        anonymous: { $ifNull: ['$anonymous', false] },
+        'lifecycle.defense': { $ifNull: ['$lifecycle.defense', { status: 'none', content: '', submittedAt: null, editableUntil: null }] },
+        'lifecycle.redemption': { $ifNull: ['$lifecycle.redemption', { status: 'none', opensAt: null, closesAt: null, votes: [] }] }
+      } },
+      { $unset: 'lifecycle.prediction' }
+    ]),
     GuildMessage.updateMany({ boardCycle: { $exists: false } }, { $set: { boardCycle: cycle, attachments: [], reactions: [], pinned: false } })
   ]);
   return { users: users.modifiedCount, posts: posts.modifiedCount, guildMessages: guildMessages.modifiedCount };

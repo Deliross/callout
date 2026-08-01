@@ -52,9 +52,9 @@ Reaction set [Classic ▾]    [Publish / Schedule]
 ┌ Custom banner ───────────────────────────────────────────────┐
 │ [Avatar+frame] Name · pronouns · status   [Follow] [Message]│
 └──────────────────────────────────────────────────────────────┘
-Stats: Voice XP · posts · Takes · guilds · streak
-[Posts] [About] [Guilds] [Achievements] [Media]
-Featured posts / pinned guilds / badges / social links
+Mini Heat frame · Heat total · active streak
+[Posts] [Guilds] [Heat]
+Heat tier progress / activity calendar / digital trophies
 ```
 
 Mobile collapses secondary columns into tabs and bottom sheets; primary actions remain reachable without horizontal page scrolling.
