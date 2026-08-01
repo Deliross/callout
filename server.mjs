@@ -17,11 +17,11 @@ import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
 import { publicPage, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
 import {
-  createAboutUpdate, createBattle, createPinboardEntry, createTopic,
+  closeBattleSubmissions, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
   listFeatureControls, listStaff, listTopics, openRedemption,
   postAllowsWrites, commentAllowsWrites, migrateBigPatchDefaults, processBigPatchLifecycles, recordPlatformAudit, resetPinboard, revealAnonymousPost,
-  setFeatureControl, setStaffRole, submitDefense, topicAllowsWrites, updateAboutUpdate, updateTopic, voteBattle, voteRedemption,
+  selectBattleFinalists, setFeatureControl, setStaffRole, submitBattleTake, submitDefense, topicAllowsWrites, updateAboutUpdate, updateTopic, voteBattle, voteRedemption,
   featureEnabled
 } from './server/bigPatch.mjs';
 import {
@@ -220,6 +220,15 @@ app.get('/api/battles', requireFeature('battles'), optionalAuth, async (req, res
 });
 app.post('/api/battles', requireFeature('battles'), requireAuth, validate(schemas.battle), async (req, res, next) => {
   try { res.status(201).json({ battle: await createBattle(req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.post('/api/battles/:id/submissions', requireFeature('battles'), requireAuth, validate(schemas.battleSubmission), async (req, res, next) => {
+  try { res.status(201).json({ battle: await submitBattleTake(req.params.id, req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.post('/api/battles/:id/close-submissions', requireFeature('battles'), requireAuth, async (req, res, next) => {
+  try { res.json({ battle: await closeBattleSubmissions(req.params.id, req.userId) }); } catch (error) { next(error); }
+});
+app.post('/api/battles/:id/finalists', requireFeature('battles'), requireAuth, validate(schemas.battleFinalists), async (req, res, next) => {
+  try { res.json({ battle: await selectBattleFinalists(req.params.id, req.userId, req.body.submissionIds) }); } catch (error) { next(error); }
 });
 app.post('/api/battles/:id/vote', requireFeature('battles'), requireAuth, validate(schemas.battleVote), async (req, res, next) => {
   try { const battle = await voteBattle(req.params.id, req.userId, req.body.round, req.body.match, req.body.seed); if (!battle) return res.status(404).json({ error: 'Battle match is unavailable.' }); res.json({ battle }); } catch (error) { next(error); }

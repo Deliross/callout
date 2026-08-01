@@ -231,23 +231,29 @@ export const schemas = {
     })).default([])
   }).custom((value, helpers) => value.text || value.attachments.length ? value : helpers.message({ custom: 'A Pinboard message needs text or an attachment.' })),
   battle: Joi.object({
-    title: plain(100).required(),
+    title: plain(160).required(),
     description: plain(500).allow('').default(''),
     category: plain(40).allow('').default('General'),
     privacy: Joi.string().valid('public', 'invite').default('public'),
     coverUrl: optionalBanner,
-    votingRule: Joi.string().valid('community', 'single_vote').default('community'),
-    durationHours: Joi.number().integer().min(1).max(168).default(24),
+    votingRule: Joi.string().valid('community').default('community'),
+    submissionHours: Joi.number().integer().valid(1, 6, 12, 24, 48).default(24),
+    roundHours: Joi.number().integer().valid(1, 6, 12, 24).default(24),
     guild: recordId.allow(null, '').default(null),
-    size: Joi.number().valid(4, 8).required(),
-    status: Joi.string().valid('draft', 'live').default('live'),
-    startsAt: Joi.date().iso().allow(null),
-    entries: Joi.array().items(Joi.object({ label: plain(100).required(), imageUrl: optionalBanner })).required()
-  }).custom((value, helpers) => value.entries.length === value.size ? value : helpers.message({ custom: 'Battle entry count must match its size.' })),
+    size: Joi.number().valid(4, 8, 16).default(4),
+    startsAt: Joi.date().iso().allow(null)
+  }),
+  battleSubmission: Joi.object({
+    text: plain(1000).required(),
+    mediaUrl: optionalBanner
+  }),
+  battleFinalists: Joi.object({
+    submissionIds: Joi.array().items(recordId).min(4).max(16).unique().required()
+  }),
   battleVote: Joi.object({
     round: Joi.number().integer().min(1).max(8).required(),
     match: Joi.number().integer().min(1).max(32).required(),
-    seed: Joi.number().integer().min(1).max(8).required()
+    seed: Joi.number().integer().min(1).max(16).required()
   }),
   aboutUpdate: Joi.object({
     title: plain(120).required(), body: plain(4000).required(),

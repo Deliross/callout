@@ -26,24 +26,38 @@ const topicSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const battleSchema = new mongoose.Schema({
-  title: { type: String, required: true, maxlength: 100 },
+  title: { type: String, required: true, maxlength: 160 },
   description: { type: String, default: '', maxlength: 500 },
   category: { type: String, default: 'General', maxlength: 40 },
   privacy: { type: String, enum: ['public', 'invite'], default: 'public', index: true },
   coverUrl: { type: String, default: '', maxlength: 2_800_000 },
-  votingRule: { type: String, enum: ['community', 'single_vote'], default: 'community' },
-  durationHours: { type: Number, min: 1, max: 168, default: 24 },
+  votingRule: { type: String, enum: ['community'], default: 'community' },
+  submissionHours: { type: Number, enum: [1, 6, 12, 24, 48], default: 24 },
+  roundHours: { type: Number, enum: [1, 6, 12, 24], default: 24 },
   hostName: { type: String, default: 'Callout member', maxlength: 80 },
   hostHandle: { type: String, default: '', maxlength: 40 },
   hostAvatarUrl: { type: String, default: '', maxlength: 2_800_000 },
   guild: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
-  size: { type: Number, enum: [4, 8], required: true },
-  status: { type: String, enum: ['draft', 'live', 'sudden_death', 'complete'], default: 'draft', index: true },
+  size: { type: Number, enum: [4, 8, 16], required: true },
+  status: { type: String, enum: ['draft', 'submissions', 'selection', 'live', 'sudden_death', 'complete'], default: 'submissions', index: true },
+  submissions: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    signalCode: { type: String, required: true, maxlength: 24 },
+    text: { type: String, required: true, maxlength: 1000 },
+    mediaUrl: { type: String, default: '', maxlength: 2_800_000 },
+    createdAt: { type: Date, default: Date.now }
+  }],
   entries: [{
     _id: false,
     seed: { type: Number, required: true },
-    label: { type: String, required: true, maxlength: 100 },
-    imageUrl: { type: String, default: '', maxlength: 2_800_000 }
+    submissionId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    signalCode: { type: String, default: 'LEGACY SIGNAL', maxlength: 24 },
+    label: { type: String, required: true, maxlength: 1000 },
+    mediaUrl: { type: String, default: '', maxlength: 2_800_000 },
+    imageUrl: { type: String, default: '', maxlength: 2_800_000 },
+    authorName: { type: String, default: '', maxlength: 80 },
+    authorHandle: { type: String, default: '', maxlength: 40 },
+    authorAvatarUrl: { type: String, default: '', maxlength: 2_800_000 }
   }],
   rounds: [{
     _id: false,
@@ -59,6 +73,7 @@ const battleSchema = new mongoose.Schema({
   }],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   startsAt: { type: Date, default: Date.now },
+  submissionsCloseAt: { type: Date, default: Date.now, index: true },
   endsAt: { type: Date, default: null }
 }, { timestamps: true });
 
@@ -366,10 +381,30 @@ export async function resetPinboard(guildId, userId) {
   return { cycle: currentBoardCycle(new Date(Date.now() + 5 * 60 * 60 * 1000)) };
 }
 
+function battleError(message, statusCode = 400) {
+  const error = new Error(message); error.statusCode = statusCode; return error;
+}
+
 function serializeBattle(value, viewerId = '') {
   const battle = plain(value);
   battle.isHost = Boolean(viewerId && String(battle.createdBy) === String(viewerId));
   battle.createdBy = undefined;
+  const submissions = (battle.submissions || []).map(item => ({
+    id: String(item._id || item.id), signalCode: item.signalCode, text: item.text,
+    mediaUrl: item.mediaUrl || '', createdAt: item.createdAt, user: String(item.user)
+  }));
+  battle.submissionCount = submissions.length;
+  battle.viewerSubmitted = Boolean(viewerId && submissions.some(item => item.user === String(viewerId)));
+  battle.submissions = battle.isHost && battle.status === 'selection'
+    ? submissions.map(({ user, ...item }) => item)
+    : [];
+  battle.entries = (battle.entries || []).map(entry => {
+    const item = { ...entry, mediaUrl: entry.mediaUrl || entry.imageUrl || '', submissionId: entry.submissionId ? String(entry.submissionId) : null };
+    if (battle.status !== 'complete') {
+      delete item.authorName; delete item.authorHandle; delete item.authorAvatarUrl;
+    }
+    return item;
+  });
   battle.rounds = (battle.rounds || []).map(match => ({
     round: match.round, match: match.match, leftSeed: match.leftSeed, rightSeed: match.rightSeed,
     leftVotes: match.leftVotes || 0, rightVotes: match.rightVotes || 0, winnerSeed: match.winnerSeed || null,
@@ -379,26 +414,88 @@ function serializeBattle(value, viewerId = '') {
   return battle;
 }
 
+async function syncBattleSubmissionWindows() {
+  const current = now();
+  if (connected()) {
+    await Battle.updateMany({ status: 'submissions', submissionsCloseAt: { $lte: current } }, { $set: { status: 'selection' } });
+    return;
+  }
+  for (const battle of memory.battles.values()) {
+    if (battle.status === 'submissions' && new Date(battle.submissionsCloseAt) <= current) battle.status = 'selection';
+  }
+}
+
 export async function listBattles(viewerId = '') {
+  await syncBattleSubmissionWindows();
   const items = connected() ? await Battle.find().sort({ createdAt: -1 }).limit(50).lean() : [...memory.battles.values()];
   return items.map(item => serializeBattle(item, viewerId)).filter(item => item.privacy !== 'invite' || item.isHost);
 }
 
 export async function createBattle(actorId, values) {
-  const entries = values.entries.map((entry, index) => ({ ...entry, seed: index + 1 }));
-  const rounds = [];
-  for (let i = 0; i < entries.length; i += 2) rounds.push({ round: 1, match: i / 2 + 1, leftSeed: entries[i].seed, rightSeed: entries[i + 1].seed, voters: [] });
   const host = connected() ? await User.findById(actorId).select('displayName handle avatarUrl').lean() : null;
   const startsAt = values.startsAt ? new Date(values.startsAt) : now();
-  const durationHours = Number(values.durationHours || 24);
-  const battle = { ...values, entries, rounds, createdBy: actorId, hostName: host?.displayName || 'Callout member', hostHandle: host?.handle || '', hostAvatarUrl: host?.avatarUrl || '', status: values.status || 'live', startsAt, endsAt: new Date(startsAt.getTime() + durationHours * 60 * 60 * 1000), createdAt: now(), updatedAt: now() };
+  const submissionHours = Number(values.submissionHours || 24);
+  const battle = {
+    ...values, submissions: [], entries: [], rounds: [], createdBy: actorId,
+    hostName: host?.displayName || 'Callout member', hostHandle: host?.handle || '', hostAvatarUrl: host?.avatarUrl || '',
+    status: 'submissions', startsAt, submissionsCloseAt: new Date(startsAt.getTime() + submissionHours * 60 * 60 * 1000),
+    endsAt: null, createdAt: now(), updatedAt: now()
+  };
   if (connected()) return serializeBattle(await Battle.create(battle), actorId);
   battle.id = crypto.randomUUID(); memory.battles.set(battle.id, battle); return serializeBattle(battle, actorId);
+}
+
+export async function submitBattleTake(battleId, userId, values) {
+  await syncBattleSubmissionWindows();
+  const battle = connected() ? await Battle.findById(battleId) : memory.battles.get(String(battleId));
+  if (!battle) throw battleError('Battle not found.', 404);
+  if (battle.status !== 'submissions' || new Date(battle.submissionsCloseAt) <= now()) throw battleError('Submissions are closed.');
+  if ((battle.submissions || []).some(item => String(item.user) === String(userId))) throw battleError('You already submitted a Take to this Battle.');
+  const submission = { user: userId, signalCode: anonymousCode(), text: values.text, mediaUrl: values.mediaUrl || '', createdAt: now() };
+  if (!connected()) submission.id = crypto.randomUUID();
+  battle.submissions.push(submission); battle.updatedAt = now();
+  if (connected()) await battle.save(); else memory.battles.set(String(battleId), battle);
+  return serializeBattle(battle, userId);
+}
+
+export async function closeBattleSubmissions(battleId, userId) {
+  const battle = connected() ? await Battle.findById(battleId) : memory.battles.get(String(battleId));
+  if (!battle) throw battleError('Battle not found.', 404);
+  if (String(battle.createdBy) !== String(userId)) throw battleError('Only the host can close submissions.', 403);
+  if (battle.status !== 'submissions') throw battleError('This submission window is already closed.');
+  if ((battle.submissions || []).length < Number(battle.size)) throw battleError(`At least ${battle.size} submissions are required before closing.`);
+  battle.status = 'selection'; battle.submissionsCloseAt = now(); battle.updatedAt = now();
+  if (connected()) await battle.save(); else memory.battles.set(String(battleId), battle);
+  return serializeBattle(battle, userId);
+}
+
+export async function selectBattleFinalists(battleId, userId, submissionIds) {
+  await syncBattleSubmissionWindows();
+  const battle = connected() ? await Battle.findById(battleId) : memory.battles.get(String(battleId));
+  if (!battle) throw battleError('Battle not found.', 404);
+  if (String(battle.createdBy) !== String(userId)) throw battleError('Only the host can select finalists.', 403);
+  if (battle.status !== 'selection') throw battleError('Finalists can only be selected after submissions close.');
+  if (submissionIds.length !== Number(battle.size)) throw battleError(`Choose exactly ${battle.size} finalists.`);
+  const selected = submissionIds.map(id => (battle.submissions || []).find(item => String(item._id || item.id) === String(id)));
+  if (selected.some(item => !item)) throw battleError('One or more selected submissions are invalid.');
+  const users = connected() ? await User.find({ _id: { $in: selected.map(item => item.user) } }).select('displayName handle avatarUrl').lean() : [];
+  const byId = new Map(users.map(user => [String(user._id), user]));
+  battle.entries = selected.map((submission, index) => {
+    const author = byId.get(String(submission.user));
+    return { seed: index + 1, submissionId: submission._id || null, signalCode: submission.signalCode, label: submission.text, mediaUrl: submission.mediaUrl || '', authorName: author?.displayName || 'Callout member', authorHandle: author?.handle || '', authorAvatarUrl: author?.avatarUrl || '' };
+  });
+  battle.rounds = [];
+  for (let index = 0; index < battle.entries.length; index += 2) battle.rounds.push({ round: 1, match: index / 2 + 1, leftSeed: index + 1, rightSeed: index + 2, voters: [] });
+  battle.status = 'live'; battle.endsAt = new Date(Date.now() + Number(battle.roundHours || 24) * 60 * 60 * 1000); battle.updatedAt = now();
+  if (connected()) await battle.save(); else memory.battles.set(String(battleId), battle);
+  await recordPlatformAudit(userId, 'battle.finalists_selected', 'battle', battleId, { finalistCount: submissionIds.length });
+  return serializeBattle(battle, userId);
 }
 
 export async function voteBattle(battleId, userId, round, match, seed) {
   if (!connected()) {
     const battle = memory.battles.get(String(battleId));
+    if (!['live', 'sudden_death'].includes(battle?.status)) return null;
     const game = battle?.rounds?.find(item => item.round === round && item.match === match);
     if (!game || game.winnerSeed || ![game.leftSeed, game.rightSeed].includes(seed)) return null;
     game.voters = (game.voters || []).filter(vote => String(vote.user) !== String(userId));
@@ -409,6 +506,7 @@ export async function voteBattle(battleId, userId, round, match, seed) {
     return serializeBattle(battle, userId);
   }
   const battle = await Battle.findById(battleId);
+  if (!['live', 'sudden_death'].includes(battle?.status)) return null;
   const game = battle?.rounds?.find(item => item.round === round && item.match === match);
   if (!game || game.winnerSeed || ![game.leftSeed, game.rightSeed].includes(seed)) return null;
   game.voters = (game.voters || []).filter(vote => String(vote.user) !== String(userId));
@@ -480,6 +578,7 @@ export async function setStaffRole(ownerId, userId, staffRole) {
 export async function processBigPatchLifecycles() {
   if (!connected()) return { topics: 0, redemptions: 0, battles: 0 };
   const current = now();
+  await Battle.updateMany({ status: 'submissions', submissionsCloseAt: { $lte: current } }, { $set: { status: 'selection' } });
   const [topics, redemptions, battles] = await Promise.all([
     Topic.find({ state: { $ne: 'vaulted' }, endsAt: { $lte: current } }),
     Post.find({ 'lifecycle.redemption.status': 'open', 'lifecycle.redemption.closesAt': { $lte: current } }),
@@ -524,7 +623,7 @@ export async function processBigPatchLifecycles() {
           if (index % 2 === 0) battle.rounds.push({ round: roundNumber + 1, match: index / 2 + 1, leftSeed: seed, rightSeed: winners[index + 1], voters: [] });
         });
         battle.status = 'live';
-        battle.endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        battle.endsAt = new Date(Date.now() + Number(battle.roundHours || 24) * 60 * 60 * 1000);
       }
       changed = true;
     }

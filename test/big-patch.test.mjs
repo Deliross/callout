@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
 import { createPost, createUser, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
-import { createBattle, createTopic, featureEnabled, getAbout, heatTier, listBattles, listFeatureControls, topicAllowsWrites } from '../server/bigPatch.mjs';
+import { closeBattleSubmissions, createBattle, createTopic, featureEnabled, getAbout, heatTier, listBattles, listFeatureControls, selectBattleFinalists, submitBattleTake, topicAllowsWrites } from '../server/bigPatch.mjs';
 import { schemas } from '../server/security.mjs';
 
 test('all coordinated Big Patch capabilities have independent beta flags', async () => {
@@ -75,8 +75,9 @@ test('About content is truthful project copy with all permanent sections', async
 
 test('Big Patch validators enforce battle, Topic and Pinboard limits', () => {
   assert.equal('predictionWager' in schemas, false);
-  assert.equal(schemas.battle.validate({ title: 'Final Four', size: 4, status: 'live', guild: null, entries: ['A', 'B', 'C', 'D'].map(label => ({ label, imageUrl: '' })) }).error, undefined);
-  assert.ok(schemas.battle.validate({ title: 'Broken', size: 8, status: 'live', entries: [{ label: 'Only one', imageUrl: '' }] }).error);
+  assert.equal(schemas.battle.validate({ title: 'Final Four', size: 4, submissionHours: 24, roundHours: 24, guild: null }).error, undefined);
+  assert.ok(schemas.battle.validate({ title: 'Broken', size: 12 }).error);
+  assert.ok(schemas.battleSubmission.validate({ text: '' }).error);
   assert.ok(schemas.pinboardEntry.validate({ text: '', attachments: [] }).error);
 });
 
@@ -100,20 +101,32 @@ test('Battles page supports free authenticated hosting and separate Host and Joi
   assert.match(styles, /\.battle-join-action\{background:#52df4b\}/);
 });
 
-test('member-hosted Battles persist customization and keep invite-only arenas private', async () => {
+test('Battles keep submissions sealed, let only the host shortlist, and reveal anonymous brackets', async () => {
   const suffix = `${Date.now()}-${Math.random()}`;
   const host = await createUser({ email: `battle-host-${suffix}@example.com`, displayName: 'Battle Host' });
-  const viewer = await createUser({ email: `battle-viewer-${suffix}@example.com`, displayName: 'Battle Viewer' });
+  const entrants = await Promise.all(Array.from({ length: 4 }, (_, index) => createUser({ email: `battle-viewer-${index}-${suffix}@example.com`, displayName: `Entrant ${index + 1}` })));
   const battle = await createBattle(host.id, {
-    title: 'Best opening scene', description: 'Pick the strongest opener.', category: 'Movies', privacy: 'invite',
-    coverUrl: '', votingRule: 'community', durationHours: 6, guild: null, size: 4, status: 'live',
-    entries: ['One', 'Two', 'Three', 'Four'].map(label => ({ label, imageUrl: '' }))
+    title: 'Best opening scene', description: 'Submit your strongest opinion.', category: 'Movies', privacy: 'public',
+    coverUrl: '', votingRule: 'community', submissionHours: 24, roundHours: 6, guild: null, size: 4
   });
   assert.equal(battle.category, 'Movies');
-  assert.equal(battle.durationHours, 6);
+  assert.equal(battle.status, 'submissions');
   assert.equal(battle.isHost, true);
-  assert.equal((await listBattles(viewer.id)).some(item => item.id === battle.id), false);
-  assert.equal((await listBattles(host.id)).some(item => item.id === battle.id), true);
+  for (const [index, entrant] of entrants.entries()) await submitBattleTake(battle.id, entrant.id, { text: `Secret opinion ${index + 1}`, mediaUrl: '' });
+  const entrantView = (await listBattles(entrants[0].id)).find(item => item.id === battle.id);
+  assert.equal(entrantView.submissionCount, 4);
+  assert.equal(entrantView.submissions.length, 0);
+  assert.equal(entrantView.viewerSubmitted, true);
+  await closeBattleSubmissions(battle.id, host.id);
+  const hostView = (await listBattles(host.id)).find(item => item.id === battle.id);
+  assert.equal(hostView.status, 'selection');
+  assert.equal(hostView.submissions.length, 4);
+  const live = await selectBattleFinalists(battle.id, host.id, hostView.submissions.map(item => item.id));
+  assert.equal(live.status, 'live');
+  const publicBracket = (await listBattles(entrants[0].id)).find(item => item.id === battle.id);
+  assert.equal(publicBracket.entries.length, 4);
+  assert.ok(publicBracket.entries.every(item => item.signalCode.startsWith('SIGNAL ')));
+  assert.ok(publicBracket.entries.every(item => !item.authorName));
 });
 
 test('owner consoles are separate, hidden by default, and Battles is navigable', async () => {
