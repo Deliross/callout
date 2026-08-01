@@ -103,6 +103,7 @@ const state = {
   anonymousPosts: [],
   topics: [],
   battles: [],
+  battleFilter: 'all',
   about: { sections: [], updates: [] },
   pinboard: { cycle: '', items: [], canManage: false },
   activeFeedTab: 'For You',
@@ -1215,9 +1216,54 @@ function topicsView() {
   return `${pageHeader('MOMENTS THAT END', 'Limited-Time Topics', 'Join live cultural moments before they become permanent, read-only Time Vaults.')}<section class="topic-groups"><div><h2>Live now</h2>${cards(groups.live)}</div><div><h2>Scheduled</h2>${cards(groups.scheduled)}</div><div><h2>Time Vaults</h2>${cards(groups.vaulted)}</div></section>`;
 }
 
+function battleTotalVotes(battle) {
+  return (battle.rounds || []).reduce((total, match) => total + Number(match.leftVotes || 0) + Number(match.rightVotes || 0), 0);
+}
+
+function battleTimeLabel(battle) {
+  const starts = new Date(battle.startsAt || Date.now()).getTime();
+  const ends = new Date(battle.endsAt || Date.now()).getTime();
+  if (starts > Date.now()) return `Starts ${timeLabel(starts)}`;
+  if (battle.status === 'complete') return 'Battle complete';
+  const remaining = Math.max(0, ends - Date.now());
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  return `${hours}h ${minutes}m left`;
+}
+
+function battleBracket(battle, compact = false) {
+  const round = Math.max(1, ...((battle.rounds || []).filter(match => !match.winnerSeed).map(match => Number(match.round || 1))));
+  const matches = (battle.rounds || []).filter(match => Number(match.round) === round);
+  return `<div class="battle-bracket ${compact ? 'compact' : ''}">${matches.map(match => {
+    const left = battle.entries.find(entry => Number(entry.seed) === Number(match.leftSeed));
+    const right = battle.entries.find(entry => Number(entry.seed) === Number(match.rightSeed));
+    const option = entry => `<button type="button" class="${Number(match.viewerVote) === Number(entry?.seed) ? 'selected' : ''}" data-battle-vote="${battle.id}" data-battle-round="${match.round}" data-battle-match="${match.match}" data-battle-seed="${entry?.seed}" ${battle.status === 'complete' ? 'disabled' : ''}><i>${entry?.seed || '–'}</i><span>${escapeHtml(entry?.label || 'TBD')}</span><b>${Number(entry?.seed) === Number(match.leftSeed) ? Number(match.leftVotes || 0).toLocaleString() : Number(match.rightVotes || 0).toLocaleString()}</b></button>`;
+    return `<section>${option(left)}<span>VS</span>${option(right)}</section>`;
+  }).join('') || '<p class="mini-empty">Bracket will appear when the Battle begins.</p>'}</div>`;
+}
+
+function liveBattleCard(battle, featured = false) {
+  return `<article class="battle-live-card ${featured ? 'featured' : ''}">${battle.coverUrl ? `<img class="battle-cover" src="${escapeHtml(battle.coverUrl)}" alt="" />` : ''}<header><strong>🔥 LIVE BATTLE</strong><b>● LIVE</b></header><div class="battle-live-body"><small>${battle.size}-ENTRY ${battle.size === 8 ? 'TOURNAMENT' : 'BATTLE'}</small><h3>${escapeHtml(battle.title)}</h3><div class="battle-round-meta"><span>ROUND IN PROGRESS</span><time>${escapeHtml(battleTimeLabel(battle))}</time></div>${battleBracket(battle, true)}</div><footer><span><small>TOTAL VOTES</small><strong>${battleTotalVotes(battle).toLocaleString()}</strong></span><button type="button" data-open-battle="${battle.id}">View Battle</button></footer></article>`;
+}
+
+function battleDetailView(battle) {
+  return `<section class="battle-room"><button class="quiet-action" type="button" data-back-battles>← All Battles</button>${battle.coverUrl ? `<div class="battle-room-cover" style="background-image:url('${escapeHtml(battle.coverUrl)}')"></div>` : ''}<header><div><span class="section-kicker">${battle.size}-ENTRY ${escapeHtml(String(battle.category || 'GENERAL').toUpperCase())}</span><h1>${escapeHtml(battle.title)}</h1><p>${escapeHtml(battle.description || 'Vote for the strongest entry. Each matchup advances the community favourite.')}</p></div><div><b>${escapeHtml(String(battle.status || 'live').replace('_', ' '))}</b><time>${escapeHtml(battleTimeLabel(battle))}</time></div></header><section class="battle-room-host"><span class="avatar">${battle.hostAvatarUrl ? `<img src="${escapeHtml(battle.hostAvatarUrl)}" alt="" />` : escapeHtml((battle.hostName || 'C').charAt(0))}</span><div><small>HOSTED BY</small><strong>${escapeHtml(battle.hostName || 'Callout member')}</strong></div><span>${escapeHtml(battle.privacy === 'invite' ? 'Invite only' : 'Public')}</span><span>${battleTotalVotes(battle).toLocaleString()} votes</span></section>${battleBracket(battle)}<aside class="info-callout"><strong>How voting works</strong><p>Choose one entry in each open matchup. You can change your vote until the round closes. Ties enter a six-hour sudden-death round.</p></aside></section>`;
+}
+
 function battlesView() {
-  const cards = state.battles.map(battle => `<article class="battle-card"><header><span class="section-kicker">${battle.size}-ENTRY BATTLE</span><h2>${escapeHtml(battle.title)}</h2><b>${escapeHtml(battle.status)}</b></header><div class="battle-bracket">${(battle.rounds || []).filter(round => round.round === 1).map(round => { const left = battle.entries.find(entry => entry.seed === round.leftSeed); const right = battle.entries.find(entry => entry.seed === round.rightSeed); return `<section><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${left?.seed}"><i>${left?.seed}</i>${escapeHtml(left?.label || 'TBD')}<b>${round.leftVotes || 0}</b></button><span>VS</span><button type="button" data-battle-vote="${battle.id}" data-battle-round="${round.round}" data-battle-match="${round.match}" data-battle-seed="${right?.seed}"><i>${right?.seed}</i>${escapeHtml(right?.label || 'TBD')}<b>${round.rightVotes || 0}</b></button></section>`; }).join('')}</div></article>`).join('');
-  return `${pageHeader('COMMUNITY TOURNAMENTS', 'Callout Battles', 'Four- and eight-entry brackets decided by the community. Ties enter six-hour sudden death.')}<section class="battle-list">${cards || emptyState('⚔', 'No live Battles', 'Staff-created Battles will appear here.')}</section>`;
+  const selectedId = decodeURIComponent(location.hash.split('/')[1] || '');
+  const selected = state.battles.find(battle => String(battle.id) === selectedId);
+  if (selected) return battleDetailView(selected);
+  const live = state.battles.filter(battle => ['live', 'sudden_death'].includes(battle.status));
+  const filters = [['all','All'],['soon','Starting soon'],['popular','Most popular'],['four','4 entry'],['eight','8 entry']];
+  let available = state.battles.filter(battle => battle.status !== 'complete');
+  if (state.battleFilter === 'soon') available = available.filter(battle => new Date(battle.startsAt).getTime() > Date.now()).sort((a,b) => new Date(a.startsAt) - new Date(b.startsAt));
+  if (state.battleFilter === 'popular') available = available.sort((a,b) => battleTotalVotes(b) - battleTotalVotes(a));
+  if (state.battleFilter === 'four') available = available.filter(battle => Number(battle.size) === 4);
+  if (state.battleFilter === 'eight') available = available.filter(battle => Number(battle.size) === 8);
+  const rows = available.map(battle => `<article class="battle-join-row">${battle.coverUrl ? `<img src="${escapeHtml(battle.coverUrl)}" alt="" />` : `<span class="battle-row-art">⚔</span>`}<span class="avatar">${battle.hostAvatarUrl ? `<img src="${escapeHtml(battle.hostAvatarUrl)}" alt="" />` : escapeHtml((battle.hostName || 'C').charAt(0))}</span><div><small>${escapeHtml(battle.category || 'General')} · Hosted by ${escapeHtml(battle.hostName || 'Callout member')}</small><strong>${escapeHtml(battle.title)}</strong></div><span><small>FORMAT</small><b>${battle.size}-entry</b></span><span><small>VOTES</small><b>${battleTotalVotes(battle).toLocaleString()}</b></span><span><small>STATUS</small><b>${escapeHtml(battleTimeLabel(battle))}</b></span><button type="button" data-open-battle="${battle.id}">Join</button></article>`).join('');
+  const liveShowcase = live.length ? live.slice(0,3).map((battle,index) => liveBattleCard(battle,index === 0)).join('') : `<article class="battle-live-empty"><span>⚔</span><div><strong>No Battles are live yet</strong><p>Host the first one and bring a topic into the arena.</p></div><button type="button" data-show-battle-host>Host free</button></article>`;
+  return `<section class="battles-page"><header class="battles-page-head"><div><span class="section-kicker">COMMUNITY TOURNAMENTS</span><h1>Battles</h1></div><p>Build a bracket, rally the community, and let every vote move the tournament forward.</p></header><section class="battle-live-showcase"><header><h2>🔥 Live Battles</h2><span>${live.length} live now</span></header><div>${liveShowcase}</div></section><section class="battle-primary-actions"><button class="battle-host-action" type="button" data-show-battle-host><span>⚔</span><strong>Host a Battle</strong><small>Free for everyone</small></button><button class="battle-join-action" type="button" data-show-battle-join><span>◎</span><strong>Join a Battle</strong><small>Jump into an open bracket</small></button></section><form class="battle-host-form" id="battleHostForm" hidden><header><div><span class="section-kicker">FREE TO HOST</span><h2>Create your Battle</h2><p>Set the arena up now. Access gates can be added later without changing the Battle itself.</p></div><button type="button" data-close-battle-host aria-label="Close">×</button></header><div class="battle-host-grid"><label>Battle title<input name="title" maxlength="100" required placeholder="e.g. Best sci-fi movie" /></label><label>Category<input name="category" maxlength="40" placeholder="Movies, Games, Music…" /></label><label>Format<select name="size"><option value="4">4-entry bracket</option><option value="8">8-entry tournament</option></select></label><label>Duration<select name="durationHours"><option value="1">1 hour</option><option value="6">6 hours</option><option value="24" selected>24 hours</option><option value="72">3 days</option><option value="168">7 days</option></select></label><label>Privacy<select name="privacy"><option value="public">Public</option><option value="invite">Invite-only</option></select></label><label>Voting<select name="votingRule"><option value="community">Community vote</option><option value="single_vote">One vote per matchup</option></select></label><label>Start time<input name="startsAt" type="datetime-local" /></label><label>Cover image URL<input name="coverUrl" type="url" placeholder="https://…" /></label></div><label>Description<textarea name="description" maxlength="500" placeholder="What is this Battle deciding?"></textarea></label><label>Entries — one per line<textarea name="entries" required placeholder="Entry one&#10;Entry two&#10;Entry three&#10;Entry four"></textarea><small>The number of lines must match the chosen format.</small></label><button class="primary-action" type="submit">Launch Battle</button></form><section class="battle-join-browser" id="openBattles"><header><div><span class="section-kicker">OPEN NOW</span><h2>Battles you can join</h2></div><div>${filters.map(([key,label]) => `<button class="${state.battleFilter === key ? 'active' : ''}" type="button" data-battle-filter="${key}">${label}</button>`).join('')}</div></header><div>${rows || `<div class="battle-list-empty"><span>◎</span><strong>No matching Battles</strong><p>Try another filter or host a new Battle.</p></div>`}</div></section><section class="battle-how"><header><span class="section-kicker">NEW HERE?</span><h2>How Battles work</h2></header><div><article><span>1</span><strong>Pick the arena</strong><p>Choose a topic, format, entries, timing, and who can join.</p></article><article><span>2</span><strong>Make your picks</strong><p>Vote once in each matchup. Change your choice while the round is open.</p></article><article><span>3</span><strong>Advance a winner</strong><p>The community winner moves forward. Ties enter sudden death.</p></article></div></section></section>`;
 }
 
 function aboutView() {
@@ -1567,6 +1613,30 @@ function bindViewInteractions(route) {
   }));
   document.querySelectorAll('[data-open-topic]').forEach(button => button.addEventListener('click', () => navigate(`topics/${button.dataset.openTopic}`)));
   document.querySelector('[data-back-topics]')?.addEventListener('click', () => navigate('topics'));
+  document.querySelector('[data-back-battles]')?.addEventListener('click', () => navigate('battles'));
+  document.querySelectorAll('[data-open-battle]').forEach(button => button.addEventListener('click', () => navigate(`battles/${button.dataset.openBattle}`)));
+  document.querySelectorAll('[data-show-battle-host]').forEach(button => button.addEventListener('click', () => {
+    if (!sessionUser) return navigate('auth');
+    const form = document.querySelector('#battleHostForm');
+    if (form) { form.hidden = false; form.scrollIntoView({ behavior: 'smooth', block: 'start' }); form.elements.title.focus(); }
+  }));
+  document.querySelector('[data-close-battle-host]')?.addEventListener('click', () => { document.querySelector('#battleHostForm').hidden = true; });
+  document.querySelector('[data-show-battle-join]')?.addEventListener('click', () => document.querySelector('#openBattles')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  document.querySelectorAll('[data-battle-filter]').forEach(button => button.addEventListener('click', () => { state.battleFilter = button.dataset.battleFilter; renderRoute(); }));
+  document.querySelector('#battleHostForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!sessionUser) return navigate('auth');
+    const form = event.currentTarget;
+    const size = Number(form.elements.size.value);
+    const labels = form.elements.entries.value.split(/\r?\n/).map(value => sanitizeInput(value.trim())).filter(Boolean);
+    if (labels.length !== size) return showToast(`Add exactly ${size} entries, one per line.`);
+    const submit = form.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = 'Launching…';
+    try {
+      const payload = { title: sanitizeInput(form.elements.title.value), description: sanitizeInput(form.elements.description.value), category: sanitizeInput(form.elements.category.value) || 'General', size, durationHours: Number(form.elements.durationHours.value), privacy: form.elements.privacy.value, votingRule: form.elements.votingRule.value, coverUrl: form.elements.coverUrl.value.trim(), startsAt: form.elements.startsAt.value ? new Date(form.elements.startsAt.value).toISOString() : null, status: 'live', entries: labels.map(label => ({ label, imageUrl: '' })) };
+      const { battle } = await apiFetch('/api/battles', { method: 'POST', body: JSON.stringify(payload) });
+      state.battles.unshift(battle); showToast('Your Battle is live.'); navigate(`battles/${battle.id}`);
+    } catch (error) { showToast(error.message); submit.disabled = false; submit.textContent = 'Launch Battle'; }
+  });
   document.querySelectorAll('[data-battle-vote]').forEach(button => button.addEventListener('click', async () => {
     if (!sessionUser) return navigate('auth');
     try {

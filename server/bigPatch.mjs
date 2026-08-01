@@ -27,6 +27,15 @@ const topicSchema = new mongoose.Schema({
 
 const battleSchema = new mongoose.Schema({
   title: { type: String, required: true, maxlength: 100 },
+  description: { type: String, default: '', maxlength: 500 },
+  category: { type: String, default: 'General', maxlength: 40 },
+  privacy: { type: String, enum: ['public', 'invite'], default: 'public', index: true },
+  coverUrl: { type: String, default: '', maxlength: 2_800_000 },
+  votingRule: { type: String, enum: ['community', 'single_vote'], default: 'community' },
+  durationHours: { type: Number, min: 1, max: 168, default: 24 },
+  hostName: { type: String, default: 'Callout member', maxlength: 80 },
+  hostHandle: { type: String, default: '', maxlength: 40 },
+  hostAvatarUrl: { type: String, default: '', maxlength: 2_800_000 },
   guild: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
   size: { type: Number, enum: [4, 8], required: true },
   status: { type: String, enum: ['draft', 'live', 'sudden_death', 'complete'], default: 'draft', index: true },
@@ -359,6 +368,7 @@ export async function resetPinboard(guildId, userId) {
 
 function serializeBattle(value, viewerId = '') {
   const battle = plain(value);
+  battle.isHost = Boolean(viewerId && String(battle.createdBy) === String(viewerId));
   battle.createdBy = undefined;
   battle.rounds = (battle.rounds || []).map(match => ({
     round: match.round, match: match.match, leftSeed: match.leftSeed, rightSeed: match.rightSeed,
@@ -370,21 +380,34 @@ function serializeBattle(value, viewerId = '') {
 }
 
 export async function listBattles(viewerId = '') {
-  if (connected()) return (await Battle.find().sort({ createdAt: -1 }).limit(50).lean()).map(item => serializeBattle(item, viewerId));
-  return [...memory.battles.values()].map(item => serializeBattle(item, viewerId));
+  const items = connected() ? await Battle.find().sort({ createdAt: -1 }).limit(50).lean() : [...memory.battles.values()];
+  return items.map(item => serializeBattle(item, viewerId)).filter(item => item.privacy !== 'invite' || item.isHost);
 }
 
 export async function createBattle(actorId, values) {
   const entries = values.entries.map((entry, index) => ({ ...entry, seed: index + 1 }));
   const rounds = [];
   for (let i = 0; i < entries.length; i += 2) rounds.push({ round: 1, match: i / 2 + 1, leftSeed: entries[i].seed, rightSeed: entries[i + 1].seed, voters: [] });
-  const battle = { ...values, entries, rounds, createdBy: actorId, status: values.status || 'live', startsAt: values.startsAt || now(), endsAt: values.endsAt || new Date(Date.now() + 24 * 60 * 60 * 1000), createdAt: now(), updatedAt: now() };
+  const host = connected() ? await User.findById(actorId).select('displayName handle avatarUrl').lean() : null;
+  const startsAt = values.startsAt ? new Date(values.startsAt) : now();
+  const durationHours = Number(values.durationHours || 24);
+  const battle = { ...values, entries, rounds, createdBy: actorId, hostName: host?.displayName || 'Callout member', hostHandle: host?.handle || '', hostAvatarUrl: host?.avatarUrl || '', status: values.status || 'live', startsAt, endsAt: new Date(startsAt.getTime() + durationHours * 60 * 60 * 1000), createdAt: now(), updatedAt: now() };
   if (connected()) return serializeBattle(await Battle.create(battle), actorId);
   battle.id = crypto.randomUUID(); memory.battles.set(battle.id, battle); return serializeBattle(battle, actorId);
 }
 
 export async function voteBattle(battleId, userId, round, match, seed) {
-  if (!connected()) return null;
+  if (!connected()) {
+    const battle = memory.battles.get(String(battleId));
+    const game = battle?.rounds?.find(item => item.round === round && item.match === match);
+    if (!game || game.winnerSeed || ![game.leftSeed, game.rightSeed].includes(seed)) return null;
+    game.voters = (game.voters || []).filter(vote => String(vote.user) !== String(userId));
+    game.voters.push({ user: userId, seed });
+    game.leftVotes = game.voters.filter(vote => vote.seed === game.leftSeed).length;
+    game.rightVotes = game.voters.filter(vote => vote.seed === game.rightSeed).length;
+    battle.updatedAt = now(); memory.battles.set(String(battleId), battle);
+    return serializeBattle(battle, userId);
+  }
   const battle = await Battle.findById(battleId);
   const game = battle?.rounds?.find(item => item.round === round && item.match === match);
   if (!game || game.winnerSeed || ![game.leftSeed, game.rightSeed].includes(seed)) return null;

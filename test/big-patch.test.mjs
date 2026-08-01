@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
 import { createPost, createUser, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
-import { createTopic, featureEnabled, getAbout, heatTier, listFeatureControls, topicAllowsWrites } from '../server/bigPatch.mjs';
+import { createBattle, createTopic, featureEnabled, getAbout, heatTier, listBattles, listFeatureControls, topicAllowsWrites } from '../server/bigPatch.mjs';
 import { schemas } from '../server/security.mjs';
 
 test('all coordinated Big Patch capabilities have independent beta flags', async () => {
@@ -78,6 +78,38 @@ test('Big Patch validators enforce battle, Topic and Pinboard limits', () => {
   assert.equal(schemas.battle.validate({ title: 'Final Four', size: 4, status: 'live', guild: null, entries: ['A', 'B', 'C', 'D'].map(label => ({ label, imageUrl: '' })) }).error, undefined);
   assert.ok(schemas.battle.validate({ title: 'Broken', size: 8, status: 'live', entries: [{ label: 'Only one', imageUrl: '' }] }).error);
   assert.ok(schemas.pinboardEntry.validate({ text: '', attachments: [] }).error);
+});
+
+test('Battles page supports free authenticated hosting and separate Host and Join flows', async () => {
+  const [app, server, styles] = await Promise.all([
+    readFile(new URL('../app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../styles.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(app, /Live Battles/);
+  assert.match(app, /Host a Battle/);
+  assert.match(app, /Join a Battle/);
+  assert.match(app, /How Battles work/);
+  assert.match(server, /app\.post\('\/api\/battles', requireFeature\('battles'\), requireAuth, validate\(schemas\.battle\)/);
+  assert.doesNotMatch(server, /app\.post\('\/api\/battles'[^\n]+requireAdmin/);
+  assert.match(styles, /\.battle-host-action\{background:#ff4b2d\}/);
+  assert.match(styles, /\.battle-join-action\{background:#52df4b\}/);
+});
+
+test('member-hosted Battles persist customization and keep invite-only arenas private', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const host = await createUser({ email: `battle-host-${suffix}@example.com`, displayName: 'Battle Host' });
+  const viewer = await createUser({ email: `battle-viewer-${suffix}@example.com`, displayName: 'Battle Viewer' });
+  const battle = await createBattle(host.id, {
+    title: 'Best opening scene', description: 'Pick the strongest opener.', category: 'Movies', privacy: 'invite',
+    coverUrl: '', votingRule: 'community', durationHours: 6, guild: null, size: 4, status: 'live',
+    entries: ['One', 'Two', 'Three', 'Four'].map(label => ({ label, imageUrl: '' }))
+  });
+  assert.equal(battle.category, 'Movies');
+  assert.equal(battle.durationHours, 6);
+  assert.equal(battle.isHost, true);
+  assert.equal((await listBattles(viewer.id)).some(item => item.id === battle.id), false);
+  assert.equal((await listBattles(host.id)).some(item => item.id === battle.id), true);
 });
 
 test('owner consoles are separate, hidden by default, and Battles is navigable', async () => {

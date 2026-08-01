@@ -218,7 +218,7 @@ app.patch('/api/topics/:id', requireFeature('topics'), requireAuth, requireAdmin
 app.get('/api/battles', requireFeature('battles'), optionalAuth, async (req, res, next) => {
   try { res.json({ battles: await listBattles(req.userId || '') }); } catch (error) { next(error); }
 });
-app.post('/api/battles', requireFeature('battles'), requireAuth, requireAdmin, validate(schemas.battle), async (req, res, next) => {
+app.post('/api/battles', requireFeature('battles'), requireAuth, validate(schemas.battle), async (req, res, next) => {
   try { res.status(201).json({ battle: await createBattle(req.userId, req.body) }); } catch (error) { next(error); }
 });
 app.post('/api/battles/:id/vote', requireFeature('battles'), requireAuth, validate(schemas.battleVote), async (req, res, next) => {
