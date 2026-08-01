@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
-import { createPost, createUser, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
+import { createPost, createUser, findUserById, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
 import { closeBattleSubmissions, createBattle, createTopic, featureEnabled, getAbout, heatTier, listBattles, listFeatureControls, selectBattleFinalists, submitBattleTake, topicAllowsWrites } from '../server/bigPatch.mjs';
 import { schemas } from '../server/security.mjs';
 
@@ -52,6 +52,27 @@ test('anonymous posts are isolated from the normal feed and never expose an acco
   const ownerItem = (await listAnonymousPosts(author.id)).find(item => item.id === post.id);
   assert.equal(ownerItem.author.id, '');
   assert.equal(ownerItem.anonymousOwner, true);
+  assert.equal((await findUserById(author.id)).heatScore, 10);
+});
+
+test('Post Take composer previews anonymous identity and keeps creation controls organized', async () => {
+  const [html, app, styles] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../styles.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /class="composer-workspace"/);
+  assert.match(html, /class="composer-tool-groups"/);
+  assert.match(html, /id="takeAnonymous"/);
+  assert.match(html, /id="previewAnonTag"/);
+  assert.match(html, /Callout can still moderate the post/);
+  assert.match(app, /document\.querySelector\('#previewName'\)\.textContent = anonymous \? 'Anonymous'/);
+  assert.match(app, /updateComposerCharacterCount/);
+  assert.match(app, /composerHasPublishableContent/);
+  assert.match(app, /state\.anonymousPosts = \[pendingPost/);
+  assert.match(styles, /\.composer-workspace\{display:grid/);
+  assert.match(styles, /#charCount\.near-limit/);
+  assert.match(styles, /\.anonymous-compose-toggle input:checked/);
 });
 
 test('Topics become read-only vaults after expiry', async () => {

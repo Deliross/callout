@@ -823,7 +823,7 @@ function postTemplate(post, detail = false) {
     <div class="take-top">
       ${postAvatarMarkup(post)}
       <div class="take-content" ${detail ? '' : `data-open-take="${post.id}" role="link" tabindex="0" aria-label="Open take: ${escapeHtml(post.text)}"`}>
-        <div class="take-byline"><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? post.authorName || post.anonymousCode || 'SIGNAL' : post.authorHandle || '@member')}</strong>${post.anonymous && !post.anonymousRevealedAt ? '<span class="anonymous-label">SEALED</span>' : ''}${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>${timeLabel(post.createdAt || Date.now())} in ${escapeHtml(post.category)}</small></div>
+        <div class="take-byline"><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong>${post.anonymous && !post.anonymousRevealedAt ? `<span class="anonymous-label">${escapeHtml(post.anonymousCode || post.authorName || 'SIGNAL')}</span>` : ''}${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>${timeLabel(post.createdAt || Date.now())} in ${escapeHtml(post.category)}</small></div>
         ${post.contentWarning ? `<details class="content-warning"><summary>Content warning: ${escapeHtml(post.contentWarning)}</summary><h2>${formatPostContent(post.text)}</h2></details>` : `<h2>${formatPostContent(post.text)}</h2>`}
         ${post.topics?.length ? `<div class="post-topics">${post.topics.map(topic => `<span>${escapeHtml(topic)}</span>`).join('')}</div>` : ''}
       </div>
@@ -2986,17 +2986,43 @@ async function handleTakeMedia(event) {
   await addTakeMedia(files);
 }
 
+function composerHasPublishableContent() {
+  const text = document.querySelector('#takeText')?.value.trim();
+  const pollBuilder = document.querySelector('#pollBuilder');
+  const pollQuestion = document.querySelector('#pollQuestion')?.value.trim();
+  return Boolean(text || pendingMedia.length || pendingExternalEmbed || (pollBuilder && !pollBuilder.hidden && pollQuestion));
+}
+
+function updateComposerSubmitState() {
+  const publish = document.querySelector('.publish-button');
+  if (!publish) return;
+  publish.disabled = composerSubmissionInFlight || !composerHasPublishableContent();
+  publish.setAttribute('aria-disabled', String(publish.disabled));
+}
+
+function updateComposerCharacterCount(length = document.querySelector('#takeText')?.value.length || 0) {
+  const counter = document.querySelector('#charCount');
+  if (!counter) return;
+  counter.textContent = `${length} / 2000`;
+  counter.classList.toggle('near-limit', length >= 1800 && length < 2000);
+  counter.classList.toggle('at-limit', length >= 2000);
+}
+
 function updateComposerPreview() {
   const text = document.querySelector('#takeText')?.value.trim() || '';
   const category = document.querySelector('#takeCategory')?.value || 'Movies';
-  const audience = document.querySelector('#takeAudience')?.selectedOptions?.[0]?.textContent || 'Public';
+  const anonymous = Boolean(document.querySelector('#takeAnonymous')?.checked);
+  const audienceControl = document.querySelector('#takeAudience');
+  if (anonymous && audienceControl) audienceControl.value = 'public';
+  if (audienceControl) audienceControl.disabled = anonymous;
   const profile = sessionUser ? state.profile : defaultState.profile;
-  document.querySelector('#previewName').textContent = profile.displayName || 'Callout member';
-  document.querySelector('#previewCategory').textContent = `${category} · now`;
-  document.querySelector('#previewAudience').textContent = audience;
+  document.querySelector('#previewName').textContent = anonymous ? 'Anonymous' : profile.displayName || 'Callout member';
+  document.querySelector('#previewCategory').textContent = anonymous ? `SIGNAL 7A · ${category} · now` : `${category} · now`;
+  document.querySelector('#previewAnonTag').hidden = !anonymous;
   document.querySelector('#previewContent').textContent = text || 'Your take will appear here as you type.';
   const avatar = document.querySelector('#previewAvatar');
-  avatar.innerHTML = profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" />` : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
+  avatar.classList.toggle('is-anonymous', anonymous);
+  avatar.innerHTML = anonymous ? '◒' : profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" />` : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
   const media = document.querySelector('#previewMedia');
   media.hidden = pendingMedia.length === 0;
   media.className = `preview-media preview-media-${Math.min(4, pendingMedia.length)}`;
@@ -3004,6 +3030,8 @@ function updateComposerPreview() {
   const external = document.querySelector('#previewExternalEmbed');
   external.hidden = !pendingExternalEmbed;
   external.innerHTML = pendingExternalEmbed ? externalEmbedMarkup(pendingExternalEmbed, true) : '';
+  updateComposerCharacterCount();
+  updateComposerSubmitState();
 }
 
 function closeExternalAttachTool(clear = false) {
@@ -3037,7 +3065,8 @@ function setComposerBusy(busy, draft = false) {
   const publish = document.querySelector('.publish-button');
   const draftButton = document.querySelector('#saveDraft');
   const closeButton = document.querySelector('[data-close-composer]');
-  publish.disabled = busy; draftButton.disabled = busy; closeButton.disabled = busy;
+  publish.disabled = busy || !composerHasPublishableContent(); draftButton.disabled = busy; closeButton.disabled = busy;
+  publish.setAttribute('aria-disabled', String(publish.disabled));
   publish.textContent = busy && !draft ? 'Posting...' : 'Post Take';
   draftButton.textContent = busy && draft ? 'Saving...' : 'Save draft';
 }
@@ -3089,9 +3118,10 @@ document.querySelector('#imageEditorForm').addEventListener('submit', event => {
 document.querySelector('#addGifUrl').addEventListener('click', () => { const input = document.querySelector('#gifUrlInput'); input.hidden = !input.hidden; if (!input.hidden) input.focus(); });
 document.querySelectorAll('#postEmojiTray button').forEach(button => button.addEventListener('click', () => { const input = document.querySelector('#takeText'); input.value += button.textContent; input.dispatchEvent(new Event('input')); input.focus(); }));
 document.querySelector('[data-close-guild]').addEventListener('click', () => guildComposer.close());
-document.querySelector('#takeText').addEventListener('input', event => { document.querySelector('#charCount').textContent = `${event.target.value.length} / 2000`; updateComposerPreview(); });
+document.querySelector('#takeText').addEventListener('input', event => { updateComposerCharacterCount(event.target.value.length); updateComposerPreview(); });
 document.querySelector('#takeCategory').addEventListener('change', updateComposerPreview);
 document.querySelector('#takeAudience').addEventListener('change', updateComposerPreview);
+document.querySelector('#takeAnonymous').addEventListener('change', updateComposerPreview);
 document.querySelectorAll('[data-format]').forEach(button => button.addEventListener('click', () => {
   const input = document.querySelector('#takeText');
   const wrappers = { bold: ['**', '**'], italic: ['*', '*'], spoiler: ['||', '||'] };
@@ -3131,9 +3161,13 @@ async function submitComposer(draft = false) {
   if (instantPublish) {
     const pendingPost = mapPost({
       ...payload, id: temporaryId, publishing: true, createdAt: new Date().toISOString(), commentCount: 0,
-      author: { id: currentUserId(), displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl }
+      anonymousCode: payload.anonymous ? 'SIGNAL' : '',
+      author: payload.anonymous
+        ? { id: '', displayName: 'Anonymous', handle: '', avatarUrl: '' }
+        : { id: currentUserId(), displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl }
     });
-    state.posts = [pendingPost, ...state.posts.filter(post => post.id !== temporaryId)];
+    if (payload.anonymous) state.anonymousPosts = [pendingPost, ...state.anonymousPosts.filter(post => post.id !== temporaryId)];
+    else state.posts = [pendingPost, ...state.posts.filter(post => post.id !== temporaryId)];
     setComposerBusy(true, false); composer.close(); navigate(`take/${temporaryId}`);
     showToast('Publishing in the background...');
   } else {
@@ -3143,10 +3177,10 @@ async function submitComposer(draft = false) {
   try {
     const result = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
     createdPost = result?.post || null;
-    if (!draft) trackEvent('create_post', { content_type: payload.contentType, audience: payload.visibility, scheduled: Boolean(payload.scheduledPublishedAt) });
+    if (!draft) trackEvent('create_post', { content_type: payload.contentType, audience: payload.visibility, anonymous: payload.anonymous, scheduled: Boolean(payload.scheduledPublishedAt) });
   } catch (error) {
     if (instantPublish) {
-      state.posts = state.posts.filter(post => post.id !== temporaryId); persist(); navigate('home'); setComposerBusy(false); composer.showModal(); updateComposerPreview();
+      state.posts = state.posts.filter(post => post.id !== temporaryId); state.anonymousPosts = state.anonymousPosts.filter(post => post.id !== temporaryId); persist(); navigate('home'); setComposerBusy(false); composer.showModal(); updateComposerPreview();
     } else await finishPublishing(false);
     setComposerBusy(false); return showToast(`Publishing failed: ${error.message}`);
   }
@@ -3154,16 +3188,19 @@ async function submitComposer(draft = false) {
   if (!draft && createdId) {
     const optimisticPost = mapPost({
       ...createdPost,
-      author: { id: currentUserId(), displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl },
+      author: payload.anonymous
+        ? { id: '', displayName: 'Anonymous', handle: '', avatarUrl: '' }
+        : { id: currentUserId(), displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl },
       commentCount: 0
     });
-    state.posts = [optimisticPost, ...state.posts.filter(post => post.id !== optimisticPost.id && post.id !== temporaryId)];
+    if (payload.anonymous) state.anonymousPosts = [optimisticPost, ...state.anonymousPosts.filter(post => post.id !== optimisticPost.id && post.id !== temporaryId)];
+    else state.posts = [optimisticPost, ...state.posts.filter(post => post.id !== optimisticPost.id && post.id !== temporaryId)];
   }
   if (!instantPublish) await finishPublishing(true, draft ? 'Draft saved.' : scheduledValue ? 'Take scheduled.' : 'Your take is live.');
   persist();
   input.value = '';
   pendingMedia = []; pendingExternalEmbed = null; renderMediaPreview(); document.querySelector('#gifUrlInput').value = ''; document.querySelector('#gifUrlInput').hidden = true; document.querySelector('#externalPostUrl').value = ''; document.querySelector('#externalAttachComposer').hidden = true;
-  document.querySelector('#charCount').textContent = '0 / 2000';
+  updateComposerCharacterCount(0);
   document.querySelector('#composerForm').reset(); document.querySelector('#pollBuilder').hidden = true;
   composerRequestId = ''; setComposerBusy(false); updateComposerPreview();
   composer.close();
@@ -3171,7 +3208,7 @@ async function submitComposer(draft = false) {
     if (instantPublish && createdId && decodeURIComponent(location.hash.split('/')[1] || '') === temporaryId) {
       history.replaceState(null, '', `#take/${encodeURIComponent(createdId)}`); renderRoute();
     } else navigate(createdId && !scheduledValue ? `take/${createdId}` : 'home');
-    Promise.allSettled([hydratePosts(), hydrateSession(), hydrateLeaderboard(), hydrateTrending()]).then(() => {
+    Promise.allSettled([hydratePosts(), hydrateBigPatch(), hydrateSession(), hydrateLeaderboard(), hydrateTrending()]).then(() => {
       if (currentRoute() === 'take' || currentRoute() === 'home') renderRoute();
     });
   }
