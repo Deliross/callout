@@ -90,6 +90,8 @@ test('Battles page supports free authenticated hosting and separate Host and Joi
   assert.match(app, /Live Battles/);
   assert.match(app, /Host a Battle/);
   assert.match(app, /Join a Battle/);
+  assert.match(app, /Your hosted Battles/);
+  assert.match(app, /Takes unlock for your private review when submissions close/);
   assert.match(app, /How Battles work/);
   assert.match(app, /function prepareBattleHostForm/);
   assert.match(app, /Advanced options/);
