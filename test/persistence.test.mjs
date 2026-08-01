@@ -75,16 +75,16 @@ test('viral video milestones notify creators once when a take trends', async () 
   assert.equal(stored.viralVideo.next, 500);
 });
 
-test('admin post corrections preserve genuine votes as metric adjustments', async () => {
+test('admin post corrections cannot alter genuine public engagement', async () => {
   const { author, reader } = await accounts();
   const post = await createPost(author.id, { content: 'Original admin test', category: 'Life', visibility: 'public' });
   await voteOnPost(post.id, reader.id, 'alright');
-  await adminUpdatePost(post.id, author.id, { content: 'Corrected admin test', category: 'Games', visibility: 'public', impressions: 120, basedVotes: 40, cringeVotes: 7 });
+  await adminUpdatePost(post.id, author.id, { content: 'Corrected admin test', category: 'Games', visibility: 'public' });
   const corrected = (await listPosts(reader.id)).find(item => item.id === post.id);
   assert.equal(corrected.content, 'Corrected admin test');
-  assert.equal(corrected.impressions, 120);
-  assert.equal(corrected.alrightVotes, 40);
-  assert.equal(corrected.cringeVotes, 7);
+  assert.equal(corrected.impressions, 1);
+  assert.equal(corrected.alrightVotes, 1);
+  assert.equal(corrected.cringeVotes, 0);
 });
 
 test('custom post reactions persist per user and anonymous ideas store no identity', async () => {

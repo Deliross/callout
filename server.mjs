@@ -15,6 +15,7 @@ import { adsenseOAuthConfigured, completeAdsenseAuthorization, createAdsenseAuth
 import { botStatus, initializeBots, runBotCycle, setBotEnabled } from './server/bots.mjs';
 import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
+import { publicPage, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
 import {
   adjustVibeTokens, claimDailyTokens, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
@@ -764,14 +765,43 @@ app.get('/vendor/html2canvas.min.js', (_req, res) => res.sendFile(path.join(root
 app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html')));
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
 app.get('/payments', (_req, res) => res.sendFile(path.join(root, 'payments.html')));
-app.get('/about', (_req, res) => res.redirect('/#about'));
+app.get('/about', (req, res) => res.type('html').send(publicPage('about', req)));
+app.get('/how-callout-works', (req, res) => res.type('html').send(publicPage('how-callout-works', req)));
+app.get('/community-guidelines', (req, res) => res.type('html').send(publicPage('guidelines', req)));
+app.get('/safety', (req, res) => res.type('html').send(publicPage('safety', req)));
+app.get('/help', (req, res) => res.type('html').send(publicPage('help', req)));
+app.get('/take/:id', async (req, res, next) => {
+  try {
+    const post = await getPublicPost(req.params.id);
+    if (!post) return res.status(404).type('html').send(publicPage('help', req));
+    const comments = await listComments(post.id);
+    res.type('html').send(publicTakePage(post, comments, req));
+  } catch (error) { next(error); }
+});
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nSitemap: ${siteOrigin(req)}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', async (req, res, next) => {
+  try {
+    const origin = siteOrigin(req);
+    let posts = [];
+    try { posts = await listPosts(''); } catch (error) { console.error('SSR feed unavailable:', error.message); }
+    const staticPaths = ['/', '/about', '/how-callout-works', '/community-guidelines', '/safety', '/help', '/privacy', '/terms'];
+    const urls = [
+      ...staticPaths.map(pathname => `${origin}${pathname}`),
+      ...posts.filter(post => !post.author?.isAutomated && String(post.content || '').trim().length >= 35).map(post => `${origin}/take/${post.id}`)
+    ];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>${url.replace(/&/g, '&amp;')}</loc></url>`).join('\n')}\n</urlset>\n`;
+    res.set('Cache-Control', 'public, max-age=3600').type('application/xml').send(xml);
+  } catch (error) { next(error); }
+});
 app.get('/ads.txt', (_req, res) => {
   const client = process.env.ADSENSE_CLIENT_ID || '';
   if (!/^ca-pub-\d{10,}$/.test(client)) return res.status(404).type('text/plain').send('AdSense is not configured.');
   res.set('Cache-Control', 'public, max-age=3600');
   res.type('text/plain').send(`google.com, ${client.replace('ca-', '')}, DIRECT, f08c47fec0942fa0\n`);
 });
-async function renderIndex(_req, res, next) {
+async function renderIndex(req, res, next) {
   try {
     let template = await readFile(path.join(root, 'index.html'), 'utf8');
     const replacements = {
@@ -784,6 +814,10 @@ async function renderIndex(_req, res, next) {
       'G-XXXXXXXXXX': /^G-[A-Z0-9]+$/i.test(process.env.GA_MEASUREMENT_ID || '') ? process.env.GA_MEASUREMENT_ID : ''
     };
     for (const [placeholder, value] of Object.entries(replacements)) template = template.replaceAll(placeholder, value);
+    let posts = [];
+    try { posts = await listPosts(''); } catch (error) { console.error('SSR feed unavailable:', error.message); }
+    template = template.replace('</head>', `${seoHead(req)}</head>`);
+    template = template.replace('<main class="main-content" id="mainContent" tabindex="-1"></main>', `<main class="main-content" id="mainContent" tabindex="-1">${rootSeoMarkup(posts, req)}</main>`);
     res.type('html').send(template);
   } catch (error) { next(error); }
 }

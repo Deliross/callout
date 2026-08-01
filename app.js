@@ -254,8 +254,8 @@ function observeAdVisibility(unit) {
 
 function initializeAds(root = document) {
   const { client } = adConfiguration();
-  if (!adsenseScriptReady || !/^ca-pub-\d{10,}$/.test(client) || location.protocol === 'file:') return;
-  const units = [...root.querySelectorAll('.adsbygoogle:not([data-callout-ad-ready]), .callout-ad-pending:not([data-callout-ad-ready])')];
+  if (!adsenseScriptReady || !routeAllowsAds() || !/^ca-pub-\d{10,}$/.test(client) || location.protocol === 'file:') return;
+  const units = [...root.querySelectorAll('.adsbygoogle:not([data-callout-ad-ready]), .callout-ad-pending:not([data-callout-ad-ready])')].filter(unit => !unit.closest('.ad-slot')?.hidden);
   units.forEach(unit => {
     const container = unit.closest('.ad-slot');
     if (!container || container.getBoundingClientRect().width >= 250) return;
@@ -272,6 +272,12 @@ function initializeAds(root = document) {
 function loadProductionAds() {
   const { client } = adConfiguration();
   if (!/^ca-pub-\d{10,}$/.test(client) || location.protocol === 'file:') return;
+  const existing = document.querySelector(`script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]`);
+  if (existing) {
+    adsenseScriptReady = true;
+    initializeAds();
+    return;
+  }
   const script = document.createElement('script');
   script.async = true;
   script.crossOrigin = 'anonymous';
@@ -281,6 +287,28 @@ function loadProductionAds() {
     initializeAds();
   });
   document.head.appendChild(script);
+}
+
+function routeAllowsAds() {
+  const route = currentRoute();
+  if (route === 'take') return Boolean(activeTake());
+  if (route === 'trending') return state.trendingPosts.length > 0;
+  return route === 'home' && state.posts.length >= 3 && !['Following', 'Anonymous'].includes(state.activeFeedTab);
+}
+
+function placementAllowsAds(placement) {
+  if (!routeAllowsAds()) return false;
+  const route = currentRoute();
+  if (placement === 'right-rail') return true;
+  if (placement === 'in-feed') return route === 'home' || route === 'trending';
+  if (placement === 'footer') return route === 'take' || (route === 'home' && state.posts.length >= 9);
+  return false;
+}
+
+function updateAdVisibility() {
+  document.querySelectorAll('.sidebar > .ad-slot, .right-rail > .ad-slot, .site-footer > .ad-slot').forEach(slot => {
+    slot.hidden = !placementAllowsAds(slot.dataset.adPlacement);
+  });
 }
 
 let lastTrackedPath = '';
@@ -754,6 +782,7 @@ function pageHeader(kicker, title, description, action = '') {
 }
 
 function adUnit(placement, className, format, label) {
+  if (!placementAllowsAds(placement)) return '';
   const { client, slots } = adConfiguration();
   const slot = slots[placement] || '';
   return `<div class="ad-slot ${className}" data-ad-placement="${placement}"><ins class="adsbygoogle" data-ad-client="${escapeHtml(client)}" data-ad-slot="${escapeHtml(slot)}" data-ad-format="${format}" data-full-width-responsive="true"></ins><span class="ad-placeholder-copy">ADVERTISEMENT <small>${label}</small></span></div>`;
@@ -1307,7 +1336,7 @@ function botAdminControlView() {
 }
 
 function adminPostConsoleView() {
-  return `<section class="admin-post-console"><header><div><span class="section-kicker">ADMIN CORRECTIONS</span><h2>Post control console</h2><p>Edit published post copy and public counters. Changes are protected by server-side owner checks and retain real user vote records.</p></div><span class="admin-lock">OWNER ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml(post.text.slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} views · ${Number(post.alrightVotes).toLocaleString()} Based · ${Number(post.cringeVotes).toLocaleString()} Hot Take</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Post content<textarea name="content" maxlength="2000" required>${escapeHtml(post.text)}</textarea></label><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label><label>Views<input name="impressions" type="number" min="0" max="1000000000" value="${Number(post.impressions || 0)}" required /></label><label>Based votes<input name="basedVotes" type="number" min="0" max="1000000000" value="${Number(post.alrightVotes || 0)}" required /></label><label>Hot Take votes<input name="cringeVotes" type="number" min="0" max="1000000000" value="${Number(post.cringeVotes || 0)}" required /></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
+  return `<section class="admin-post-console"><header><div><span class="section-kicker">CONTENT CORRECTIONS</span><h2>Post control console</h2><p>Edit published wording, category, or visibility. Votes and views are genuine activity and cannot be manually changed.</p></div><span class="admin-lock">OWNER ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml(post.text.slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} real views · ${Number(post.alrightVotes + post.cringeVotes).toLocaleString()} account votes</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Post content<textarea name="content" maxlength="2000" required>${escapeHtml(post.text)}</textarea></label><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
 }
 
 function adminControlView() {
@@ -1397,10 +1426,12 @@ function renderRoute() {
   document.querySelector('#sidebar').classList.remove('open');
   mainContent.innerHTML = viewRenderers[route]();
   mainContent.dataset.route = route;
+  document.body.dataset.route = route;
+  updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
   renderProfileCringeBadge();
-  initializeAds(mainContent);
+  if (routeAllowsAds()) initializeAds(mainContent);
   trackPageView();
   mainContent.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2636,7 +2667,7 @@ async function saveAdminPost(event) {
   try {
     const payload = await apiFetch(`/api/admin/posts/${form.dataset.adminPostForm}`, {
       method: 'PATCH',
-      body: JSON.stringify({ content: sanitizeInput(values.content), category: values.category, visibility: values.visibility, impressions: Number(values.impressions), basedVotes: Number(values.basedVotes), cringeVotes: Number(values.cringeVotes) })
+      body: JSON.stringify({ content: sanitizeInput(values.content), category: values.category, visibility: values.visibility })
     });
     const updated = mapPost(payload.post);
     const index = state.posts.findIndex(post => post.id === updated.id);

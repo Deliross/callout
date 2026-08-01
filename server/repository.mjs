@@ -217,11 +217,12 @@ const serializePost = (post, userId = '') => {
   const userVote = votes.find(vote => String(vote.user?._id || vote.user) === String(userId))?.value || null;
   const poll = value.poll?.options?.length ? { ...value.poll, options: value.poll.options.map(option => ({ id: String(option._id || option.id), text: option.text, votes: option.voters?.length || 0, voted: (option.voters || []).some(voter => String(voter) === String(userId)), voters: undefined })) } : null;
   const emojiReactions = Object.fromEntries(POST_REACTION_KEYS.map(key => { const reaction = (value.emojiReactions || []).find(item => item.key === key); return [key, { count: reaction?.users?.length || 0, reacted: (reaction?.users || []).some(user => String(user?._id || user) === String(userId)) }]; }));
-  const adminMetrics = value.adminMetrics || {};
   const effective = {
-    alrightVotes: Math.max(0, Number(value.alrightVotes || 0) + Number(adminMetrics.basedAdjustment || 0)),
-    cringeVotes: Math.max(0, Number(value.cringeVotes || 0) + Number(adminMetrics.cringeAdjustment || 0)),
-    impressions: Math.max(0, Number(value.impressions || 0) + Number(adminMetrics.impressionsAdjustment || 0))
+    // Public engagement is derived only from genuine stored activity. Historic
+    // administrator adjustments are deliberately ignored.
+    alrightVotes: Math.max(0, Number(value.alrightVotes || 0)),
+    cringeVotes: Math.max(0, Number(value.cringeVotes || 0)),
+    impressions: Math.max(0, Number(value.impressions || 0))
   };
   value.viralVideo = {
     milestones: VIRAL_VIDEO_MILESTONES,
@@ -318,12 +319,7 @@ export async function adminUpdatePost(postId, adminId, values) {
     if (values.content !== undefined) post.content = values.content;
     if (values.category !== undefined) post.category = values.category;
     if (values.visibility !== undefined) post.visibility = values.visibility;
-    post.adminMetrics = {
-      basedAdjustment: Number(values.basedVotes) - Number(post.alrightVotes || 0),
-      cringeAdjustment: Number(values.cringeVotes) - Number(post.cringeVotes || 0),
-      impressionsAdjustment: Number(values.impressions) - Number(post.impressions || 0),
-      editedAt: new Date(), editedBy: adminId
-    };
+    post.adminMetrics = { basedAdjustment: 0, cringeAdjustment: 0, impressionsAdjustment: 0, editedAt: new Date(), editedBy: adminId };
     await post.save();
     await post.populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore');
     return { ...serializePost(post), author: post.author ? publicIdentity(post.author) : null, adminEditedAt: post.adminMetrics.editedAt };
@@ -331,19 +327,14 @@ export async function adminUpdatePost(postId, adminId, values) {
   const post = memoryPosts.get(String(postId));
   if (!post) return null;
   Object.assign(post, { content: values.content, category: values.category, visibility: values.visibility, updatedAt: new Date() });
-  post.adminMetrics = {
-    basedAdjustment: Number(values.basedVotes) - Number(post.alrightVotes || 0),
-    cringeAdjustment: Number(values.cringeVotes) - Number(post.cringeVotes || 0),
-    impressionsAdjustment: Number(values.impressions) - Number(post.impressions || 0),
-    editedAt: new Date(), editedBy: String(adminId)
-  };
+  post.adminMetrics = { basedAdjustment: 0, cringeAdjustment: 0, impressionsAdjustment: 0, editedAt: new Date(), editedBy: String(adminId) };
   return { ...serializePost(post), author: publicIdentity(memoryUsers.get(String(post.author))), adminEditedAt: post.adminMetrics.editedAt };
 }
 
 export async function listPosts(userId = '', { trending = false } = {}) {
   if (connected) {
     const sort = trending ? { impressions: -1, alrightVotes: -1, cringeVotes: -1, createdAt: -1 } : { createdAt: -1 };
-    const posts = await Post.find({ guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).limit(60).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
+    const posts = await Post.find({ guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] }, $or: [{ scheduledPublishedAt: null }, { scheduledPublishedAt: { $lte: new Date() } }] }).sort(sort).limit(24).populate('author', 'displayName handle avatarUrl isAutomated automationPersona cringeScore').lean().exec();
     const counts = await Comment.aggregate([{ $match: { post: { $in: posts.map(post => post._id) } } }, { $group: { _id: '$post', count: { $sum: 1 } } }]);
     const countMap = new Map(counts.map(item => [String(item._id), item.count]));
     return posts.map(post => ({
