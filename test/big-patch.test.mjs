@@ -26,6 +26,19 @@ test('Heat Streak trophies replace the legacy badge system', () => {
   assert.equal(trophies.some(trophy => /badge/i.test(trophy.name)), false);
 });
 
+test('Heat dashboard includes weekly and full-year activity views', async () => {
+  const [app, styles] = await Promise.all([
+    readFile(new URL('../app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../styles.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(app, /function heatWeekStrip/);
+  assert.match(app, /function heatYearActivity/);
+  assert.match(app, /YEAR TO DATE/);
+  assert.match(app, /ACTIVE DAYS/);
+  assert.match(styles, /\.heat-streak-dashboard/);
+  assert.match(styles, /\.heat-year-cells/);
+});
+
 test('anonymous posts are isolated from the normal feed and never expose an account id', async () => {
   const suffix = `${Date.now()}-${Math.random()}`;
   const author = await createUser({ email: `signal-${suffix}@example.com`, displayName: 'Hidden Author' });

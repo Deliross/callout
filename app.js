@@ -497,7 +497,12 @@ function updateAccountChrome() {
   document.querySelector('#heatTierName').textContent = milestone.name;
   document.querySelector('#heatProgressText').textContent = milestone.level === 6 ? 'MAX LEVEL' : `${score.toLocaleString()} / ${milestone.next.toLocaleString()}`;
   const track = document.querySelector('#heatProgress');
-  track.setAttribute('aria-valuenow', String(score)); track.setAttribute('aria-valuemax', String(milestone.next || score)); track.querySelector('span').style.width = `${milestone.progress}%`; track.querySelector('i').style.left = `${Math.max(2, milestone.progress - 3)}%`;
+  track.setAttribute('aria-valuenow', String(score)); track.setAttribute('aria-valuemax', String(milestone.next || score)); track.querySelector('span').style.width = `${milestone.progress}%`; track.querySelector('i').style.left = `${milestone.progress}%`;
+  const heatCard = document.querySelector('.heat-mini-card');
+  if (heatCard) {
+    heatCard.style.setProperty('--heat-accent', milestone.color);
+    heatCard.dataset.heatLevel = String(milestone.level);
+  }
   const railKind = state.railLeaderboardKind === 'based' ? 'based' : 'cringe';
   const railUsers = railKind === 'based' ? state.basedLeaderboard : state.leaderboard;
   const railScoreKey = railKind === 'based' ? 'basedScore' : 'cringeScore';
@@ -1074,13 +1079,52 @@ function heatActivityGrid(streak = {}, days = 84) {
   const active = new Set(streak.activeDates || []);
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   const cells = [];
+  let consecutive = 0;
   for (let offset = days - 1; offset >= 0; offset -= 1) {
     const date = new Date(today.getTime() - offset * 86400000);
     const key = date.toISOString().slice(0, 10);
-    const intensity = active.has(key) ? 1 + (date.getUTCDate() % 3) : 0;
+    consecutive = active.has(key) ? consecutive + 1 : 0;
+    const intensity = consecutive >= 6 ? 3 : consecutive >= 3 ? 2 : consecutive ? 1 : 0;
     cells.push(`<i class="heat-day intensity-${intensity}" title="${key}${intensity ? ' · Active' : ''}" aria-label="${key}${intensity ? ', active' : ', quiet'}"></i>`);
   }
   return `<div class="heat-activity-grid" role="img" aria-label="Heat activity for the last ${days} days">${cells.join('')}</div>`;
+}
+
+function heatWeekStrip(streak = {}) {
+  const active = new Set(streak.activeDates || []);
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const mondayOffset = (today.getUTCDay() + 6) % 7;
+  const monday = new Date(today.getTime() - mondayOffset * 86400000);
+  const names = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  return `<div class="heat-week-strip" aria-label="This week’s Heat activity">${names.map((name, index) => {
+    const date = new Date(monday.getTime() + index * 86400000);
+    const key = date.toISOString().slice(0, 10);
+    const complete = active.has(key);
+    const future = date > today;
+    return `<span class="${complete ? 'complete' : future ? 'future' : ''}"><b>${name}</b><i aria-label="${key}${complete ? ', active' : ', inactive'}">${complete ? '✓' : ''}</i></span>`;
+  }).join('')}</div>`;
+}
+
+function heatYearActivity(streak = {}) {
+  const active = new Set(streak.activeDates || []);
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const year = today.getUTCFullYear();
+  const start = new Date(Date.UTC(year, 0, 1));
+  const end = new Date(Date.UTC(year, 11, 31));
+  const leading = (start.getUTCDay() + 6) % 7;
+  const cells = Array.from({ length: leading }, () => '<i class="heat-year-spacer" aria-hidden="true"></i>');
+  let consecutive = 0;
+  for (let timestamp = start.getTime(); timestamp <= end.getTime(); timestamp += 86400000) {
+    const date = new Date(timestamp);
+    const key = date.toISOString().slice(0, 10);
+    const isActive = active.has(key);
+    const isFuture = date > today;
+    consecutive = isActive ? consecutive + 1 : 0;
+    const intensity = consecutive >= 6 ? 3 : consecutive >= 3 ? 2 : consecutive ? 1 : 0;
+    cells.push(`<i class="heat-day intensity-${intensity}${isFuture ? ' future' : ''}" title="${key}${isActive ? ' · Active' : ''}" aria-label="${key}${isActive ? ', active' : isFuture ? ', upcoming' : ', quiet'}"></i>`);
+  }
+  const activeDays = [...active].filter(key => key.startsWith(`${year}-`)).length;
+  return { activeDays, markup: `<div class="heat-year-scroll"><div class="heat-months">${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].map(month => `<span>${month}</span>`).join('')}</div><div class="heat-year-body"><div class="heat-weekdays">${['MON','TUE','WED','THU','FRI','SAT','SUN'].map(day => `<span>${day}</span>`).join('')}</div><div class="heat-year-cells" role="img" aria-label="${year} Heat activity">${cells.join('')}</div></div></div>` };
 }
 
 function digitalTrophyCabinet(user = state.profile) {
@@ -1093,6 +1137,7 @@ function heatLevelView() {
   const score = Number(state.profile.heatScore || 0);
   const current = heatMilestone(score);
   const streak = state.profile.heatStreak || {};
+  const yearActivity = heatYearActivity(streak);
   return `${pageHeader('YOUR HEAT', 'Heat Level', 'One clear measure of meaningful participation across Callout.')}
     <section class="heat-level-hero" style="--heat-accent:${current.color}">
       <div class="heat-level-identity"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">YOUR HEAT LEVEL</span><h2>${escapeHtml(current.name)}</h2><p>Level ${current.level} · <strong>${score.toLocaleString()} Heat</strong></p></div></div>
@@ -1100,7 +1145,11 @@ function heatLevelView() {
       <div class="heat-avatar-orbit"><span class="avatar heat-frame ${heatFrameClass(score)}">${state.profile.avatarUrl ? `<img src="${escapeHtml(state.profile.avatarUrl)}" alt="" />` : escapeHtml((state.profile.displayName || 'C').charAt(0))}</span><b>LV ${current.level}</b></div>
     </section>
     <section class="heat-tier-grid">${current.levels.map(level => `<article class="${current.level >= level.level ? 'unlocked' : 'locked'}" style="--level:${level.color}"><span>${calloutGlyph('personal')}</span><small>LEVEL ${level.level}</small><strong>${escapeHtml(level.name)}</strong><p>${level.threshold.toLocaleString()}+ Heat</p><b>${current.level >= level.level ? 'Unlocked' : 'Locked'}</b></article>`).join('')}</section>
-    <section class="heat-streak-panel"><div class="heat-streak-summary"><span>🔥</span><div><small>HEAT STREAK</small><strong>${Number(streak.current || 0)} days</strong><p>Longest: ${Number(streak.longest || 0)} days</p></div></div><div class="heat-streak-calendar"><header><strong>12-WEEK ACTIVITY</strong><span>Quiet <i></i><i></i><i></i> On fire</span></header>${heatActivityGrid(streak)}</div></section>
+    <section class="heat-streak-dashboard">
+      <header class="heat-streak-hero"><span class="avatar heat-frame ${heatFrameClass(score)}">${state.profile.avatarUrl ? `<img src="${escapeHtml(state.profile.avatarUrl)}" alt="" />` : escapeHtml((state.profile.displayName || 'C').charAt(0))}</span><span class="heat-streak-flame">♨</span><div><h2>${Number(streak.current || 0)} DAY HEAT STREAK</h2><p>Keep showing up. Keep the conversation moving.</p></div>${heatWeekStrip(streak)}</header>
+      <section class="heat-year-card"><header><strong>YOUR HEAT ACTIVITY</strong><span>${new Date().getUTCFullYear()} · YEAR TO DATE</span></header>${yearActivity.markup}<div class="heat-year-legend"><span><i></i>Quiet</span><span><i></i>Active</span><span><i></i>Heating up</span><span><i></i>On fire</span></div></section>
+      <aside class="heat-streak-stats"><article><span>▣</span><small>CURRENT</small><strong>${Number(streak.current || 0)}</strong><b>days</b></article><article><span>⚑</span><small>LONGEST</small><strong>${Number(streak.longest || 0)}</strong><b>days</b></article><article><span>✓</span><small>ACTIVE DAYS</small><strong>${yearActivity.activeDays}</strong><b>this year</b></article></aside>
+    </section>
     ${digitalTrophyCabinet(state.profile)}
     <aside class="info-callout heat-rules"><strong>How Heat grows</strong><p>Publish a post: +10 · Add a Take or reply: +4 · First vote or reaction: +1. Any meaningful action keeps that day’s Heat Streak alive; repeated toggling never creates extra Heat.</p></aside>`;
 }
