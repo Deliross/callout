@@ -320,10 +320,12 @@ function loadGoogleAnalytics() {
   window.gtag('consent', 'default', { analytics_storage: 'denied', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
   window.gtag('js', new Date());
   window.gtag('config', measurementId, { send_page_view: false, anonymize_ip: true });
-  const script = document.createElement('script');
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
-  document.head.appendChild(script);
+  if (!document.querySelector('script[src*="www.googletagmanager.com/gtag/js"]')) {
+    const script = document.createElement('script');
+    script.async = true;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
+    document.head.appendChild(script);
+  }
 }
 
 function trackPageView() {
