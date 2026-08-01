@@ -90,6 +90,10 @@ test('Battles page supports free authenticated hosting and separate Host and Joi
   assert.match(app, /Host a Battle/);
   assert.match(app, /Join a Battle/);
   assert.match(app, /How Battles work/);
+  assert.match(app, /function prepareBattleHostForm/);
+  assert.match(app, /Advanced options/);
+  assert.match(app, /Cover image \(optional\)/);
+  assert.match(app, /payload\.details\.join/);
   assert.match(server, /app\.post\('\/api\/battles', requireFeature\('battles'\), requireAuth, validate\(schemas\.battle\)/);
   assert.doesNotMatch(server, /app\.post\('\/api\/battles'[^\n]+requireAdmin/);
   assert.match(styles, /\.battle-host-action\{background:#ff4b2d\}/);

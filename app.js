@@ -402,7 +402,8 @@ async function apiFetch(url, options = {}, retry = true) {
   }
   const payload = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload?.error || 'Request failed.');
+    const detail = Array.isArray(payload?.details) && payload.details.length ? payload.details.join(' ') : '';
+    const error = new Error(detail || payload?.error || 'Request failed.');
     error.status = response.status;
     throw error;
   }
@@ -1576,8 +1577,49 @@ function bindPostInteractions() {
   }));
 }
 
+function prepareBattleHostForm() {
+  const form = document.querySelector('#battleHostForm');
+  if (!form || form.dataset.prepared === 'true') return;
+  form.dataset.prepared = 'true';
+  const submit = form.querySelector('[type="submit"]');
+  const grid = form.querySelector('.battle-host-grid');
+  const advanced = document.createElement('details');
+  advanced.className = 'battle-advanced-options';
+  advanced.innerHTML = '<summary><span><strong>Advanced options</strong><small>Timing, privacy, cover and description</small></span><b>＋</b></summary><div class="battle-advanced-grid"></div>';
+  const advancedGrid = advanced.querySelector('div');
+  ['category','durationHours','privacy','votingRule','startsAt','coverUrl'].forEach(name => {
+    const input = form.elements[name];
+    if (input?.closest('label')) advancedGrid.appendChild(input.closest('label'));
+  });
+  const coverLabel = advancedGrid.querySelector('label:has([name="coverUrl"])');
+  if (coverLabel) coverLabel.innerHTML = 'Cover image (optional)<input name="coverFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><small>PNG, JPG, WebP or GIF · maximum 2 MB</small>';
+  const description = form.elements.description?.closest('label');
+  if (description) advanced.appendChild(description);
+  form.insertBefore(advanced, submit);
+
+  const oldEntries = form.elements.entries;
+  const oldEntriesLabel = oldEntries?.closest('label');
+  const entrySection = document.createElement('section');
+  entrySection.className = 'battle-simple-entries';
+  entrySection.innerHTML = '<header><strong>Who or what is battling?</strong><small>Name each entry. That’s all you need.</small></header><div></div>';
+  oldEntries.removeAttribute('required');
+  const entryGrid = entrySection.querySelector('div');
+  const renderFields = () => {
+    const size = Number(form.elements.size.value || 4);
+    const saved = [...entryGrid.querySelectorAll('input')].map(input => input.value);
+    entryGrid.innerHTML = Array.from({ length: size }, (_, index) => `<label><span>${index + 1}</span><input name="battleEntry" maxlength="100" required placeholder="Entry ${index + 1}" value="${escapeHtml(saved[index] || '')}" /></label>`).join('');
+    const sync = () => { oldEntries.value = [...entryGrid.querySelectorAll('input')].map(input => sanitizeInput(input.value.trim())).filter(Boolean).join('\n'); };
+    entryGrid.querySelectorAll('input').forEach(input => input.addEventListener('input', sync)); sync();
+  };
+  oldEntriesLabel.parentNode.insertBefore(entrySection, oldEntriesLabel);
+  oldEntriesLabel.hidden = true;
+  form.elements.size.addEventListener('change', renderFields);
+  renderFields();
+}
+
 function bindViewInteractions(route) {
   bindPostInteractions();
+  prepareBattleHostForm();
   document.querySelectorAll('[data-admin-section]').forEach(button => button.addEventListener('click', () => navigate(`admin/${button.dataset.adminSection}`)));
   document.querySelectorAll('.admin-console-view [data-route-button]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.routeButton)));
   document.querySelectorAll('[data-post-state]').forEach(button => button.addEventListener('click', () => {
@@ -1632,7 +1674,10 @@ function bindViewInteractions(route) {
     if (labels.length !== size) return showToast(`Add exactly ${size} entries, one per line.`);
     const submit = form.querySelector('[type="submit"]'); submit.disabled = true; submit.textContent = 'Launching…';
     try {
-      const payload = { title: sanitizeInput(form.elements.title.value), description: sanitizeInput(form.elements.description.value), category: sanitizeInput(form.elements.category.value) || 'General', size, durationHours: Number(form.elements.durationHours.value), privacy: form.elements.privacy.value, votingRule: form.elements.votingRule.value, coverUrl: form.elements.coverUrl.value.trim(), startsAt: form.elements.startsAt.value ? new Date(form.elements.startsAt.value).toISOString() : null, status: 'live', entries: labels.map(label => ({ label, imageUrl: '' })) };
+      const coverFile = form.elements.coverFile?.files?.[0];
+      if (coverFile && coverFile.size > 2 * 1024 * 1024) throw new Error('Cover image must be 2 MB or smaller.');
+      const coverUrl = coverFile ? await fileToDataUrl(coverFile) : '';
+      const payload = { title: sanitizeInput(form.elements.title.value), description: sanitizeInput(form.elements.description.value), category: sanitizeInput(form.elements.category.value) || 'General', size, durationHours: Number(form.elements.durationHours.value), privacy: form.elements.privacy.value, votingRule: form.elements.votingRule.value, coverUrl, startsAt: form.elements.startsAt.value ? new Date(form.elements.startsAt.value).toISOString() : null, status: 'live', entries: labels.map(label => ({ label, imageUrl: '' })) };
       const { battle } = await apiFetch('/api/battles', { method: 'POST', body: JSON.stringify(payload) });
       state.battles.unshift(battle); showToast('Your Battle is live.'); navigate(`battles/${battle.id}`);
     } catch (error) { showToast(error.message); submit.disabled = false; submit.textContent = 'Launch Battle'; }
