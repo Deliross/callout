@@ -160,6 +160,41 @@ function metaContent(name) {
   return document.querySelector(`meta[name="${name}"]`)?.content?.trim() || '';
 }
 
+const consentStorageKey = 'callout-privacy-consent-v1';
+let privacyConsent = (() => {
+  try { return localStorage.getItem(consentStorageKey) || ''; } catch { return ''; }
+})();
+
+function updateGoogleConsent(choice) {
+  const granted = choice === 'accept' ? 'granted' : 'denied';
+  window.gtag?.('consent', 'update', {
+    analytics_storage: granted,
+    ad_storage: granted,
+    ad_user_data: granted,
+    ad_personalization: granted
+  });
+}
+
+function setPrivacyConsent(choice) {
+  privacyConsent = choice === 'accept' ? 'accept' : 'reject';
+  try { localStorage.setItem(consentStorageKey, privacyConsent); } catch { /* the current choice still applies */ }
+  updateGoogleConsent(privacyConsent);
+  const banner = document.querySelector('#consentBanner');
+  if (banner) banner.hidden = true;
+  updateAdVisibility();
+  if (privacyConsent === 'accept') loadProductionAds();
+}
+
+function initializePrivacyChoices() {
+  const banner = document.querySelector('#consentBanner');
+  document.querySelectorAll('[data-consent]').forEach(button => button.addEventListener('click', () => setPrivacyConsent(button.dataset.consent)));
+  document.querySelectorAll('[data-privacy-choices]').forEach(button => button.addEventListener('click', () => {
+    if (banner) banner.hidden = false;
+  }));
+  if (privacyConsent) updateGoogleConsent(privacyConsent);
+  else if (banner) banner.hidden = false;
+}
+
 function adConfiguration() {
   return {
     client: metaContent('adsense-client'),
@@ -269,6 +304,7 @@ function initializeAds(root = document) {
 }
 
 function loadProductionAds() {
+  if (privacyConsent !== 'accept') return;
   const { client } = adConfiguration();
   if (!/^ca-pub-\d{10,}$/.test(client) || location.protocol === 'file:') return;
   const existing = document.querySelector(`script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]`);
@@ -289,10 +325,12 @@ function loadProductionAds() {
 }
 
 function routeAllowsAds() {
+  if (privacyConsent !== 'accept') return false;
   const route = currentRoute();
   if (route === 'take') return Boolean(activeTake());
-  if (route === 'trending') return state.trendingPosts.length > 0;
-  return route === 'home' && state.posts.length >= 3 && !['Following', 'Anonymous'].includes(state.activeFeedTab);
+  const publicPosts = posts => sessionUser ? posts : posts.filter(post => !post.authorAutomated);
+  if (route === 'trending') return publicPosts(state.trendingPosts).length >= 3;
+  return route === 'home' && publicPosts(state.posts).length >= 3 && !['Following', 'Anonymous'].includes(state.activeFeedTab);
 }
 
 function placementAllowsAds(placement) {
@@ -300,7 +338,7 @@ function placementAllowsAds(placement) {
   const route = currentRoute();
   if (placement === 'right-rail') return true;
   if (placement === 'in-feed') return route === 'home' || route === 'trending';
-  if (placement === 'footer') return route === 'take' || (route === 'home' && state.posts.length >= 9);
+  if (placement === 'footer') return route === 'take' || (route === 'home' && (sessionUser ? state.posts : state.posts.filter(post => !post.authorAutomated)).length >= 9);
   return false;
 }
 
@@ -973,12 +1011,16 @@ function postEmojiPicker(post) {
 }
 
 function homeView() {
-  const source = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const rawSource = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const source = sessionUser ? rawSource : rawSource.filter(post => !post.authorAutomated);
+  const guestDiscovery = `<section class="guest-discovery"><span class="section-kicker">WELCOME TO CALLOUT</span><h2>Original discussions are building here.</h2><p>Callout is an independent platform for publishing a focused opinion, voting Based or Hot Take, and explaining the result through public Takes. Automated accounts are excluded from the logged-out public feed so the discussions shown here represent real members.</p><div><a href="/learn">Browse the Learning Centre</a><a href="/how-callout-works">See how Callout works</a><a href="#auth" data-route="auth">Create an account</a></div></section>`;
   const posts = state.activeFeedTab === 'Following'
     ? emptyState('◎', 'No followed accounts yet', 'Posts from people you follow will appear here.')
     : source.length
     ? feedMarkup(source)
-    : emptyState('✦', 'No takes to show yet', 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post your first take</button>');
+    : sessionUser
+    ? emptyState('✦', 'No takes to show yet', 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post your first take</button>')
+    : guestDiscovery;
 
   return `${adBanner('top-leaderboard')}
     <div class="feed-tabs" role="tablist" aria-label="Feed views">
@@ -995,7 +1037,7 @@ function homeExperienceView() {
 }
 
 function trendingView() {
-  const posts = state.trendingPosts;
+  const posts = sessionUser ? state.trendingPosts : state.trendingPosts.filter(post => !post.authorAutomated);
   const interactions = posts.reduce((sum, post) => sum + post.alrightVotes + post.cringeVotes + Number(post.commentCount || 0), 0);
   const closeCalls = posts.filter(post => { const total = post.alrightVotes + post.cringeVotes; return total && Math.abs((post.alrightVotes / total) - .5) <= .1; }).length;
   return `<div class="leaderboard-compact-head compact-page-head"><strong>TRENDING</strong><span><i></i> Updated live</span></div>
@@ -1551,7 +1593,8 @@ function renderRoute() {
 }
 
 function renderFilteredPosts(category = 'All', search = '') {
-  const source = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const rawSource = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
+  const source = sessionUser ? rawSource : rawSource.filter(post => !post.authorAutomated);
   const filtered = source.filter(post => (category === 'All' || post.category === category) && post.text.toLowerCase().includes(search.toLowerCase()));
   const results = document.querySelector('#feedResults');
   if (!results) return;
@@ -3293,5 +3336,6 @@ updateHeaderProfile();
 applyDisplaySettings();
 if (!location.hash) history.replaceState(null, '', '#home');
 loadGoogleAnalytics();
+initializePrivacyChoices();
 renderRoute();
 hydrateApp().finally(loadProductionAds);

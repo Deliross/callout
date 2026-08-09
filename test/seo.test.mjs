@@ -1,18 +1,25 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { publicPage, rootSeoMarkup, seoHead } from '../server/publicPages.mjs';
+import { publicLibraryPage, publicPage, publicPagePaths, rootSeoMarkup, seoHead } from '../server/publicPages.mjs';
 
 const request = { protocol: 'https', get: () => 'callout-social.onrender.com' };
 
 test('public information pages contain substantial original copy and crawl metadata', () => {
-  for (const name of ['about', 'how-callout-works', 'guidelines', 'safety', 'help']) {
+  for (const name of Object.keys(publicPagePaths)) {
     const html = publicPage(name, request);
     assert.match(html, /<link rel="canonical"/);
     assert.match(html, /application\/ld\+json/);
     assert.ok(html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length > 180);
     assert.doesNotMatch(html, /ADVERTISEMENT|adsbygoogle/);
   }
+});
+
+test('learning centre links every original public guide and contains no ad units', () => {
+  const html = publicLibraryPage(request);
+  for (const pathname of Object.values(publicPagePaths)) assert.match(html, new RegExp(pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(html, /CollectionPage/);
+  assert.doesNotMatch(html, /ADVERTISEMENT|adsbygoogle/);
 });
 
 test('root server render exposes useful content before JavaScript hydration', () => {
@@ -28,4 +35,7 @@ test('server publishes robots, sitemap, public pages and crawlable take routes',
   assert.match(server, /app\.get\('\/sitemap\.xml'/);
   assert.match(server, /app\.get\('\/take\/:id'/);
   assert.match(server, /app\.get\('\/community-guidelines'/);
+  assert.match(server, /app\.get\('\/learn'/);
+  assert.match(server, /app\.get\('\/moderation'/);
+  assert.match(server, /publicNotFoundPage/);
 });

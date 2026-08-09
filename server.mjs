@@ -15,7 +15,7 @@ import { adsenseOAuthConfigured, completeAdsenseAuthorization, createAdsenseAuth
 import { botStatus, initializeBots, runBotCycle, setBotEnabled } from './server/bots.mjs';
 import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
-import { publicPage, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
+import { publicLibraryPage, publicNotFoundPage, publicPage, publicPagePaths, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
 import {
   closeBattleSubmissions, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
@@ -751,14 +751,24 @@ app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html'))
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
 app.get('/payments', (_req, res) => res.sendFile(path.join(root, 'payments.html')));
 app.get('/about', (req, res) => res.type('html').send(publicPage('about', req)));
+app.get('/learn', (req, res) => res.type('html').send(publicLibraryPage(req)));
 app.get('/how-callout-works', (req, res) => res.type('html').send(publicPage('how-callout-works', req)));
 app.get('/community-guidelines', (req, res) => res.type('html').send(publicPage('guidelines', req)));
 app.get('/safety', (req, res) => res.type('html').send(publicPage('safety', req)));
 app.get('/help', (req, res) => res.type('html').send(publicPage('help', req)));
+app.get('/guides/writing-a-strong-take', (req, res) => res.type('html').send(publicPage('writing-takes', req)));
+app.get('/guides/voting-and-verdicts', (req, res) => res.type('html').send(publicPage('voting-verdicts', req)));
+app.get('/guides/heat-level', (req, res) => res.type('html').send(publicPage('heat-level', req)));
+app.get('/guides/guilds', (req, res) => res.type('html').send(publicPage('guilds-guide', req)));
+app.get('/guides/battles', (req, res) => res.type('html').send(publicPage('battles-guide', req)));
+app.get('/guides/privacy-controls', (req, res) => res.type('html').send(publicPage('privacy-controls', req)));
+app.get('/moderation', (req, res) => res.type('html').send(publicPage('moderation', req)));
+app.get('/copyright', (req, res) => res.type('html').send(publicPage('copyright', req)));
+app.get('/accessibility', (req, res) => res.type('html').send(publicPage('accessibility', req)));
 app.get('/take/:id', async (req, res, next) => {
   try {
     const post = await getPublicPost(req.params.id);
-    if (!post) return res.status(404).type('html').send(publicPage('help', req));
+    if (!post) return res.status(404).type('html').send(publicNotFoundPage(req));
     const comments = await listComments(post.id);
     res.type('html').send(publicTakePage(post, comments, req));
   } catch (error) { next(error); }
@@ -771,7 +781,7 @@ app.get('/sitemap.xml', async (req, res, next) => {
     const origin = siteOrigin(req);
     let posts = [];
     try { posts = await listPosts(''); } catch (error) { console.error('SSR feed unavailable:', error.message); }
-    const staticPaths = ['/', '/about', '/how-callout-works', '/community-guidelines', '/safety', '/help', '/privacy', '/terms'];
+    const staticPaths = ['/', '/learn', ...Object.values(publicPagePaths), '/privacy', '/terms', '/payments'];
     const urls = [
       ...staticPaths.map(pathname => `${origin}${pathname}`),
       ...posts.filter(post => !post.author?.isAutomated && String(post.content || '').trim().length >= 35).map(post => `${origin}/take/${post.id}`)
@@ -808,6 +818,10 @@ async function renderIndex(req, res, next) {
 }
 app.get(['/', '/index.html'], renderIndex);
 app.use(express.static(root, { index: 'index.html', extensions: ['html'] }));
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  res.status(404).type('html').send(publicNotFoundPage(req));
+});
 
 app.use((error, _req, res, _next) => {
   console.error(error);
