@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { featureFlags } from '../server/featureFlags.mjs';
-import { createPost, createUser, findUserById, heatTrophies, listAnonymousPosts, listPosts } from '../server/repository.mjs';
+import { PROFILE_BADGES, createPost, createUser, findUserById, listAnonymousPosts, listPosts } from '../server/repository.mjs';
 import { closeBattleSubmissions, createBattle, createTopic, featureEnabled, getAbout, heatTier, listBattles, listFeatureControls, selectBattleFinalists, submitBattleTake, topicAllowsWrites } from '../server/bigPatch.mjs';
 import { schemas } from '../server/security.mjs';
 
@@ -20,10 +20,10 @@ test('Heat frames use all six automatic tiers', () => {
   ]);
 });
 
-test('Heat Streak trophies replace the legacy badge system', () => {
-  const trophies = heatTrophies(14);
-  assert.deepEqual(trophies.filter(trophy => trophy.unlocked).map(trophy => trophy.key), ['first-spark', 'week-on-fire', 'heatwave']);
-  assert.equal(trophies.some(trophy => /badge/i.test(trophy.name)), false);
+test('Callout identity badges replace the old streak trophy cabinet', () => {
+  assert.deepEqual(PROFILE_BADGES.map(badge => badge.key), ['hot-take', 'debater', 'wordsmith', 'top-heat']);
+  assert.equal(PROFILE_BADGES.find(badge => badge.key === 'top-heat').dynamic, true);
+  assert.equal(PROFILE_BADGES.find(badge => badge.key === 'hot-take').target, 100);
 });
 
 test('Heat dashboard includes weekly and full-year activity views', async () => {

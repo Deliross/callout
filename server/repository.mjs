@@ -14,6 +14,10 @@ import { GuildMembership } from './models/GuildMembership.mjs';
 import { GuildAudit } from './models/GuildAudit.mjs';
 import { NotificationMute } from './models/NotificationMute.mjs';
 import { FeatureIdea } from './models/FeatureIdea.mjs';
+import { Follow } from './models/Follow.mjs';
+import { BadgeUnlock } from './models/BadgeUnlock.mjs';
+import { ProfileActivity } from './models/ProfileActivity.mjs';
+import { Collection } from './models/Collection.mjs';
 import { anonymousIdentity, enrichPostLifecycle, heatTier, prepareAnonymousPost } from './bigPatch.mjs';
 
 let connected = false;
@@ -31,16 +35,18 @@ const memoryGuildMemberships = new Map();
 const memoryGuildAudits = [];
 const memoryNotificationMutes = [];
 const memoryFeatureIdeas = [];
+const memoryFollows = [];
+const memoryBadgeUnlocks = [];
+const memoryProfileActivity = [];
+const memoryCollections = new Map();
 const VIRAL_VIDEO_MILESTONES = [100, 500, 1000];
 const POST_REACTION_KEYS = ['spark', 'purple_smile', 'based_crown', 'heat', 'micdrop', 'sideeye', 'brainzap', 'popcorn', 'gold_star', 'red_flag', 'diamond', 'ghosted', 'clown', 'tiny_fire', 'skull', 'laugh', 'question', 'loud', 'rare', 'callout'];
 export const HEAT_REWARDS = Object.freeze({ publishPost: 10, addTake: 4, firstReaction: 1 });
-export const HEAT_TROPHY_MILESTONES = Object.freeze([
-  { key: 'first-spark', name: 'First Spark', days: 3, icon: '✦' },
-  { key: 'week-on-fire', name: 'Week on Fire', days: 7, icon: '🔥' },
-  { key: 'heatwave', name: 'Heatwave', days: 14, icon: '☀' },
-  { key: 'month-ablaze', name: 'Month Ablaze', days: 30, icon: '▥' },
-  { key: 'relentless', name: 'Relentless', days: 100, icon: '⛓' },
-  { key: 'hall-of-heat', name: 'Hall of Heat', days: 365, icon: '♛' }
+export const PROFILE_BADGES = Object.freeze([
+  { key: 'hot-take', name: 'Hot Take', description: '100+ Hot Take votes received', target: 100, icon: '♨', tone: 'hot' },
+  { key: 'debater', name: 'Debater', description: '50+ Takes published', target: 50, icon: '◯', tone: 'mint' },
+  { key: 'wordsmith', name: 'Wordsmith', description: '10+ posts published', target: 10, icon: '✎', tone: 'blue' },
+  { key: 'top-heat', name: 'Top 10%', description: 'Current Global Heat rank', target: 1, icon: '♛', tone: 'violet', dynamic: true }
 ]);
 
 const DEFAULT_GUILD_ROLES = [
@@ -106,7 +112,6 @@ export function publicUser(user) {
   safe.heatStreak = heatStreakPayload(safe);
   safe.cringeScore = Number(safe.cringeScore || 0);
   safe.heatTier = heatTier(safe.heatScore);
-  safe.digitalTrophies = heatTrophies(safe.heatStreak.longest);
   safe.cosmeticUnlocks = cosmeticUnlocks(safe.heatScore);
   delete safe._id;
   delete safe.__v;
@@ -115,10 +120,6 @@ export function publicUser(user) {
 
 const heatDateKey = value => new Date(value || Date.now()).toISOString().slice(0, 10);
 const previousHeatDateKey = key => heatDateKey(new Date(`${key}T00:00:00.000Z`).getTime() - 86400000);
-
-export function heatTrophies(longestStreak = 0) {
-  return HEAT_TROPHY_MILESTONES.map(trophy => ({ ...trophy, unlocked: Number(longestStreak || 0) >= trophy.days }));
-}
 
 export function heatStreakPayload(user = {}) {
   const today = heatDateKey();
@@ -145,7 +146,7 @@ function publicIdentity(user) {
   const avatarUrl = String(account.avatarUrl || '').startsWith('data:image/')
     ? `/api/users/${encodeURIComponent(account.id)}/avatar`
     : account.avatarUrl;
-  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', heatScore: account.heatScore, heatStreak: account.heatStreak, digitalTrophies: account.digitalTrophies, cringeScore: account.cringeScore, heatTier: account.heatTier, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
+  return { id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '', heatScore: account.heatScore, heatStreak: account.heatStreak, cringeScore: account.cringeScore, heatTier: account.heatTier, postCount: Number(account.postCount || 0), createdAt: account.createdAt };
 }
 
 async function incrementHeat(userId, amount, activityAt = new Date()) {
@@ -210,7 +211,7 @@ export async function createUser(values) {
   }
   if (connected) return User.create(userValues);
   const now = new Date();
-  const user = { id: crypto.randomUUID(), heatScore: 0, heatStreakCurrent: 0, heatStreakLongest: 0, heatLastActiveDate: '', heatActivityDates: [], staffRole: 'member', cringeScore: 0, points: 0, postCount: 0, savedPosts: [], avatarUrl: '', bio: '', bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', profileBackground: 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: 'featured', featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
+  const user = { id: crypto.randomUUID(), heatScore: 0, heatStreakCurrent: 0, heatStreakLongest: 0, heatLastActiveDate: '', heatActivityDates: [], staffRole: 'member', cringeScore: 0, points: 0, postCount: 0, savedPosts: [], avatarUrl: '', bio: '', tagline: '', location: '', profileVisibility: { about: 'public', activity: 'public' }, bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', profileBackground: 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: 'featured', featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
   memoryUsers.set(user.id, user);
   return user;
 }
@@ -1036,7 +1037,7 @@ export async function searchCallout(query) {
 }
 
 export async function listNotifications(userId) {
-  const categoryFor = type => ({ vote: 'likes', comment: 'comments', reply: 'comments', guild: 'guild_activity', guild_invite: 'guild_activity', friend_request: 'follows', friend_accept: 'follows', message: 'dms', viral_video: 'takes', system: 'system' }[type] || 'system');
+  const categoryFor = type => ({ vote: 'likes', comment: 'comments', reply: 'comments', guild: 'guild_activity', guild_invite: 'guild_activity', friend_request: 'follows', friend_accept: 'follows', follow: 'follows', message: 'dms', viral_video: 'takes', system: 'system' }[type] || 'system');
   const now = new Date();
   const mutes = connected ? await NotificationMute.find({ user: userId }).lean() : memoryNotificationMutes.filter(item => item.user === String(userId));
   const hidden = item => mutes.some(mute => {
@@ -1160,31 +1161,229 @@ export async function listFriends(userId) {
   return memoryFriendships.filter(item => item.requester === String(userId) || item.recipient === String(userId)).map(item => serializeFriendship({ ...item, requester: memoryUsers.get(item.requester), recipient: memoryUsers.get(item.recipient) }));
 }
 
+const followKey = (followerId, followingId) => `${followerId}:${followingId}`;
+const collectionPayload = (value, viewerId = '') => {
+  const row = normalize(value);
+  if (!row) return null;
+  const posts = (row.posts || []).map(post => {
+    const source = post?.content !== undefined ? post : connected ? null : memoryPosts.get(String(post));
+    if (!source || source.anonymous || source.draft || source.guild || (source.visibility || 'public') !== 'public') return null;
+    return { ...serializePost(source, viewerId), author: source.author?.displayName ? publicIdentity(source.author) : publicIdentity(memoryUsers.get(String(source.author))) };
+  }).filter(Boolean);
+  return { id: String(row._id || row.id), type: row.type, title: row.title, description: row.description || '', coverUrl: row.coverUrl || '', visibility: row.visibility || 'private', posts, postCount: posts.length, createdAt: row.createdAt, updatedAt: row.updatedAt };
+};
+
+async function acceptedFriends(a, b) {
+  if (!a || !b) return false;
+  const key = pairKey(a, b);
+  if (connected) return Boolean(await Friendship.exists({ pairKey: key, status: 'accepted' }));
+  return memoryFriendships.some(item => item.pairKey === key && item.status === 'accepted');
+}
+
+const canViewSection = (visibility, owner, viewer, friends) => String(owner) === String(viewer) || visibility === 'public' || visibility === 'friends' && friends;
+
+export async function followUser(followerId, followingId) {
+  if (!followingId || String(followerId) === String(followingId) || !(await findUserById(followingId))) return null;
+  if (connected) {
+    const follow = await Follow.findOneAndUpdate({ follower: followerId, following: followingId }, { $setOnInsert: { follower: followerId, following: followingId } }, { upsert: true, new: true });
+    await Notification.findOneAndUpdate({ recipient: followingId, actor: followerId, type: 'follow' }, { recipient: followingId, actor: followerId, type: 'follow', text: 'Someone followed your profile.', read: false }, { upsert: true, new: true });
+    return { following: true, id: String(follow._id) };
+  }
+  if (!memoryFollows.some(item => item.follower === String(followerId) && item.following === String(followingId))) {
+    memoryFollows.push({ id: crypto.randomUUID(), follower: String(followerId), following: String(followingId), createdAt: new Date() });
+    memoryNotifications.push({ id: crypto.randomUUID(), recipient: String(followingId), actor: publicUser(memoryUsers.get(String(followerId))), type: 'follow', text: 'Someone followed your profile.', read: false, createdAt: new Date() });
+  }
+  return { following: true };
+}
+
+export async function unfollowUser(followerId, followingId) {
+  if (connected) await Follow.deleteOne({ follower: followerId, following: followingId });
+  else {
+    const index = memoryFollows.findIndex(item => item.follower === String(followerId) && item.following === String(followingId));
+    if (index >= 0) memoryFollows.splice(index, 1);
+  }
+  return { following: false };
+}
+
+export async function listFollowConnections(userId, direction = 'followers', page = 1) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const field = direction === 'following' ? 'follower' : 'following';
+  const populate = direction === 'following' ? 'following' : 'follower';
+  if (connected) {
+    const query = direction === 'following' ? { follower: userId } : { following: userId };
+    const [rows, total] = await Promise.all([Follow.find(query).sort({ createdAt: -1 }).skip((safePage - 1) * 30).limit(30).populate(populate, 'displayName handle avatarUrl heatScore').lean(), Follow.countDocuments(query)]);
+    return { users: rows.map(row => publicIdentity(row[populate])), total, page: safePage };
+  }
+  const ids = memoryFollows.filter(item => String(item[field]) === String(userId)).map(item => direction === 'following' ? item.following : item.follower);
+  return { users: ids.slice((safePage - 1) * 30, safePage * 30).map(id => publicIdentity(memoryUsers.get(id))).filter(Boolean), total: ids.length, page: safePage };
+}
+
+async function heatStanding(userId) {
+  const users = connected
+    ? await User.find({ isAutomated: { $ne: true }, heatScore: { $gt: 0 } }).select('_id heatScore createdAt postCount').sort({ heatScore: -1, postCount: -1, createdAt: 1 }).lean()
+    : [...memoryUsers.values()].filter(user => !user.isAutomated && Number(user.heatScore || 0) > 0).sort((a, b) => Number(b.heatScore || 0) - Number(a.heatScore || 0) || Number(b.postCount || 0) - Number(a.postCount || 0) || new Date(a.createdAt) - new Date(b.createdAt));
+  const index = users.findIndex(user => String(user._id || user.id) === String(userId));
+  const rank = index < 0 ? null : index + 1;
+  return { rank, total: users.length, topTenPercent: Boolean(rank && rank <= Math.max(1, Math.ceil(users.length * .1))) };
+}
+
+async function profileMetrics(userId) {
+  if (connected) {
+    const [posts, comments, voteRows, followers, following] = await Promise.all([
+      Post.countDocuments({ author: userId, guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] } }),
+      Comment.aggregate([{ $match: { author: new mongoose.Types.ObjectId(userId) } }, { $lookup: { from: 'posts', localField: 'post', foreignField: '_id', as: 'sourcePost' } }, { $unwind: '$sourcePost' }, { $match: { 'sourcePost.anonymous': { $ne: true } } }, { $count: 'total' }]),
+      Post.aggregate([{ $match: { author: new mongoose.Types.ObjectId(userId), guild: null, anonymous: { $ne: true }, draft: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$cringeVotes' } } }]),
+      Follow.countDocuments({ following: userId }), Follow.countDocuments({ follower: userId })
+    ]);
+    return { posts, comments: Number(comments[0]?.total || 0), hotTakeVotes: Number(voteRows[0]?.total || 0), followers, following };
+  }
+  const posts = [...memoryPosts.values()].filter(post => post.author === String(userId) && !post.guild && !post.anonymous && !post.draft);
+  return { posts: posts.length, comments: [...memoryComments.values()].filter(comment => comment.author === String(userId) && !memoryPosts.get(String(comment.post))?.anonymous).length, hotTakeVotes: posts.reduce((sum, post) => sum + Number(post.cringeVotes || 0), 0), followers: memoryFollows.filter(item => item.following === String(userId)).length, following: memoryFollows.filter(item => item.follower === String(userId)).length };
+}
+
+async function ensurePermanentBadges(userId, metrics) {
+  const earned = PROFILE_BADGES.filter(badge => !badge.dynamic && Number(metrics[badge.key === 'hot-take' ? 'hotTakeVotes' : badge.key === 'debater' ? 'comments' : 'posts'] || 0) >= badge.target);
+  if (connected) {
+    for (const badge of earned) {
+      const result = await BadgeUnlock.updateOne({ user: userId, key: badge.key }, { $setOnInsert: { user: userId, key: badge.key, metadata: { threshold: badge.target } } }, { upsert: true });
+      if (result.upsertedCount) await ProfileActivity.create({ user: userId, type: 'badge', badgeKey: badge.key, text: `${badge.name} badge unlocked.` });
+    }
+    return BadgeUnlock.find({ user: userId }).lean();
+  }
+  for (const badge of earned) if (!memoryBadgeUnlocks.some(item => item.user === String(userId) && item.key === badge.key)) {
+    memoryBadgeUnlocks.push({ id: crypto.randomUUID(), user: String(userId), key: badge.key, unlockedAt: new Date() });
+    memoryProfileActivity.push({ id: crypto.randomUUID(), user: String(userId), type: 'badge', badgeKey: badge.key, text: `${badge.name} badge unlocked.`, createdAt: new Date() });
+  }
+  return memoryBadgeUnlocks.filter(item => item.user === String(userId));
+}
+
+async function ensureTopHeatActivity(userId, standing) {
+  if (!standing.topTenPercent) return;
+  if (connected) {
+    await ProfileActivity.updateOne(
+      { user: userId, type: 'top_heat' },
+      { $setOnInsert: { user: userId, type: 'top_heat', text: 'Reached the top 10% of Global Heat.', metadata: { firstRank: standing.rank } } },
+      { upsert: true }
+    );
+    return;
+  }
+  if (!memoryProfileActivity.some(item => item.user === String(userId) && item.type === 'top_heat')) {
+    memoryProfileActivity.push({ id: crypto.randomUUID(), user: String(userId), type: 'top_heat', text: 'Reached the top 10% of Global Heat.', metadata: { firstRank: standing.rank }, createdAt: new Date() });
+  }
+}
+
+function badgePayload(unlocks, metrics, standing) {
+  const unlocked = new Map(unlocks.map(item => [item.key, item.unlockedAt || item.createdAt]));
+  return PROFILE_BADGES.map(badge => {
+    const value = badge.key === 'hot-take' ? metrics.hotTakeVotes : badge.key === 'debater' ? metrics.comments : badge.key === 'wordsmith' ? metrics.posts : standing.topTenPercent ? 1 : 0;
+    return { ...badge, value, progress: Math.min(100, Math.round(value / badge.target * 100)), unlocked: badge.dynamic ? standing.topTenPercent : unlocked.has(badge.key), unlockedAt: badge.dynamic ? null : unlocked.get(badge.key) || null };
+  });
+}
+
+async function profileActivity(user, viewerId, visible) {
+  if (!visible) return [];
+  const userId = String(user._id || user.id);
+  if (connected) {
+    const [stored, posts, comments, memberships] = await Promise.all([
+      ProfileActivity.find({ user: userId }).sort({ createdAt: -1 }).limit(40).lean(),
+      Post.find({ author: userId, guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] } }).select('content category createdAt').sort({ createdAt: -1 }).limit(20).lean(),
+      Comment.find({ author: userId }).populate('post', 'anonymous guild').sort({ createdAt: -1 }).limit(20).lean(),
+      GuildMembership.find({ user: userId, status: 'active' }).populate('guild', 'name privacy creator').sort({ joinedAt: -1 }).limit(20).lean()
+    ]);
+    const derived = [
+      ...posts.map(post => ({ id: `post:${post._id}`, type: 'post', text: `Published a ${post.category || 'Callout'} post`, post: String(post._id), createdAt: post.createdAt })),
+      ...comments.filter(comment => comment.post && !comment.post.anonymous && !comment.post.guild).map(comment => ({ id: `take:${comment._id}`, type: 'take', text: 'Added a Take to a discussion', post: String(comment.post._id), createdAt: comment.createdAt })),
+      ...memberships.filter(item => item.guild && item.guild.privacy === 'public').map(item => ({ id: `guild:${item._id}`, type: String(item.guild.creator) === userId ? 'guild_founder' : 'guild_join', text: `${String(item.guild.creator) === userId ? 'Founded' : 'Joined'} ${item.guild.name}`, guild: String(item.guild._id), createdAt: item.joinedAt }))
+    ];
+    return [...stored.map(item => ({ ...item, id: String(item._id), _id: undefined })), ...derived, { id: `joined:${userId}`, type: 'joined', text: 'Joined Callout', createdAt: user.createdAt }].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).filter((item, index, rows) => rows.findIndex(other => other.id === item.id || item.type === 'badge' && other.type === 'badge' && other.badgeKey === item.badgeKey) === index).slice(0, 50);
+  }
+  const derived = [
+    ...[...memoryPosts.values()].filter(post => post.author === userId && !post.anonymous && !post.guild && !post.draft).map(post => ({ id: `post:${post.id}`, type: 'post', text: `Published a ${post.category || 'Callout'} post`, post: post.id, createdAt: post.createdAt })),
+    ...[...memoryComments.values()].filter(comment => comment.author === userId && !memoryPosts.get(comment.post)?.anonymous && !memoryPosts.get(comment.post)?.guild).map(comment => ({ id: `take:${comment.id}`, type: 'take', text: 'Added a Take to a discussion', post: comment.post, createdAt: comment.createdAt })),
+    ...memoryProfileActivity.filter(item => item.user === userId), { id: `joined:${userId}`, type: 'joined', text: 'Joined Callout', createdAt: user.createdAt }
+  ];
+  return derived.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 50);
+}
+
+export async function listCollections(ownerId, viewerId = '') {
+  const friends = await acceptedFriends(ownerId, viewerId);
+  if (connected) {
+    const rows = await Collection.find({ owner: ownerId }).sort({ updatedAt: -1 }).populate({ path: 'posts', populate: { path: 'author', select: 'displayName handle avatarUrl heatScore' } }).lean();
+    return rows.filter(row => canViewSection(row.visibility, ownerId, viewerId, friends)).map(row => collectionPayload(row, viewerId));
+  }
+  return [...memoryCollections.values()].filter(row => row.owner === String(ownerId) && canViewSection(row.visibility, ownerId, viewerId, friends)).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).map(row => collectionPayload(row, viewerId));
+}
+
+export async function createCollection(ownerId, values) {
+  if (connected) return collectionPayload(await Collection.create({ owner: ownerId, posts: [], ...values }), ownerId);
+  const row = { id: crypto.randomUUID(), owner: String(ownerId), posts: [], createdAt: new Date(), updatedAt: new Date(), ...values }; memoryCollections.set(row.id, row); return collectionPayload(row, ownerId);
+}
+
+export async function updateCollection(collectionId, ownerId, values) {
+  if (connected) { const row = await Collection.findOneAndUpdate({ _id: collectionId, owner: ownerId }, values, { new: true, runValidators: true }).populate({ path: 'posts', populate: { path: 'author', select: 'displayName handle avatarUrl heatScore' } }); return collectionPayload(row, ownerId); }
+  const row = memoryCollections.get(String(collectionId)); if (!row || row.owner !== String(ownerId)) return null; Object.assign(row, values, { updatedAt: new Date() }); return collectionPayload(row, ownerId);
+}
+
+export async function deleteCollection(collectionId, ownerId) {
+  if (connected) return Boolean((await Collection.deleteOne({ _id: collectionId, owner: ownerId })).deletedCount);
+  const row = memoryCollections.get(String(collectionId)); if (!row || row.owner !== String(ownerId)) return false; return memoryCollections.delete(String(collectionId));
+}
+
+export async function addCollectionPost(collectionId, ownerId, postId) {
+  const post = connected ? await Post.findById(postId).lean() : memoryPosts.get(String(postId));
+  if (!post || post.anonymous || post.guild || post.draft || (post.visibility || 'public') !== 'public') return null;
+  if (connected) {
+    const collection = await Collection.findOne({ _id: collectionId, owner: ownerId }); if (!collection || collection.type === 'portfolio' && String(post.author) !== String(ownerId)) return null;
+    collection.posts.pull(postId); collection.posts.push(postId); if (collection.posts.length > 100) collection.posts = collection.posts.slice(-100); await collection.save(); return updateCollection(collectionId, ownerId, {});
+  }
+  const collection = memoryCollections.get(String(collectionId)); if (!collection || collection.owner !== String(ownerId) || collection.type === 'portfolio' && String(post.author) !== String(ownerId)) return null;
+  collection.posts = [...collection.posts.filter(id => id !== String(postId)), String(postId)].slice(-100); collection.updatedAt = new Date(); return collectionPayload(collection, ownerId);
+}
+
+export async function removeCollectionPost(collectionId, ownerId, postId) {
+  if (connected) { const row = await Collection.findOneAndUpdate({ _id: collectionId, owner: ownerId }, { $pull: { posts: postId } }, { new: true }); return row ? updateCollection(collectionId, ownerId, {}) : null; }
+  const row = memoryCollections.get(String(collectionId)); if (!row || row.owner !== String(ownerId)) return null; row.posts = row.posts.filter(id => id !== String(postId)); row.updatedAt = new Date(); return collectionPayload(row, ownerId);
+}
+
+export async function reorderCollection(collectionId, ownerId, postIds) {
+  const row = connected ? await Collection.findOne({ _id: collectionId, owner: ownerId }) : memoryCollections.get(String(collectionId));
+  if (!row || String(row.owner) !== String(ownerId) && !connected) return null;
+  const current = new Set((row.posts || []).map(String)); if (postIds.length !== current.size || postIds.some(id => !current.has(String(id)))) return null;
+  row.posts = postIds; row.updatedAt = new Date(); if (connected) await row.save(); return connected ? updateCollection(collectionId, ownerId, {}) : collectionPayload(row, ownerId);
+}
+
 export async function getPublicProfile(profileId, viewerId = '') {
   const user = await findUserById(profileId);
   if (!user) return null;
   const account = publicUser(user);
   let posts;
   let guilds;
-  let commentCount;
   if (connected) {
-    [posts, guilds, commentCount] = await Promise.all([
-      Post.find({ author: profileId, guild: null, draft: { $ne: true }, visibility: { $in: ['public', null] } }).sort({ createdAt: -1 }).limit(50).lean(),
-      Guild.find({ members: profileId }).sort({ createdAt: -1 }).limit(20).lean(),
-      Comment.countDocuments({ author: profileId })
+    [posts, guilds] = await Promise.all([
+      Post.find({ author: profileId, guild: null, anonymous: { $ne: true }, draft: { $ne: true }, visibility: { $in: ['public', null] } }).sort({ createdAt: -1 }).limit(50).lean(),
+      Guild.find({ members: profileId, privacy: 'public' }).sort({ createdAt: -1 }).limit(20).lean()
     ]);
   } else {
-    posts = [...memoryPosts.values()].filter(post => post.author === String(profileId) && !post.guild && !post.draft && (post.visibility || 'public') === 'public').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 50);
-    guilds = [...memoryGuilds.values()].filter(guild => guild.members.includes(String(profileId))).slice(0, 20);
-    commentCount = [...memoryComments.values()].filter(comment => comment.author === String(profileId)).length;
+    posts = [...memoryPosts.values()].filter(post => post.author === String(profileId) && !post.guild && !post.anonymous && !post.draft && (post.visibility || 'public') === 'public').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 50);
+    guilds = [...memoryGuilds.values()].filter(guild => guild.privacy === 'public' && guild.members.includes(String(profileId))).slice(0, 20);
   }
+  const [metrics, standing, friends] = await Promise.all([profileMetrics(profileId), heatStanding(profileId), acceptedFriends(profileId, viewerId)]);
+  await ensureTopHeatActivity(profileId, standing);
+  const unlocks = await ensurePermanentBadges(profileId, metrics);
+  const visibility = account.profileVisibility || { about: 'public', activity: 'public' };
+  const aboutVisible = canViewSection(visibility.about || 'public', profileId, viewerId, friends);
+  const activityVisible = canViewSection(visibility.activity || 'public', profileId, viewerId, friends);
+  const [activity, collections] = await Promise.all([profileActivity(account, viewerId, activityVisible), listCollections(profileId, viewerId)]);
+  const following = viewerId ? (connected ? Boolean(await Follow.exists({ follower: viewerId, following: profileId })) : memoryFollows.some(item => item.follower === String(viewerId) && item.following === String(profileId))) : false;
   const serializedPosts = posts.map(post => serializePost(post, viewerId));
   const featuredIds = new Set((account.featuredPosts || []).map(String));
   const profile = {
     id: account.id, displayName: account.displayName, handle: account.handle, avatarUrl: account.avatarUrl, bannerUrl: account.bannerUrl, isAutomated: Boolean(account.isAutomated), automationPersona: account.automationPersona || '',
-    themeColor: account.themeColor, avatarFrame: account.avatarFrame || 'none', profileEffect: account.profileEffect || 'none', profileBackground: account.profileBackground || 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: account.showcaseMode || 'featured', cosmeticUnlocks: account.cosmeticUnlocks, bio: account.bio, socialLinks: account.socialLinks, pronouns: account.pronouns,
-    status: account.status, heatScore: account.heatScore, heatTier: account.heatTier, heatStreak: account.heatStreak, digitalTrophies: account.digitalTrophies, createdAt: account.createdAt,
-    stats: { posts: serializedPosts.length, comments: commentCount, guilds: guilds.length },
+    themeColor: account.themeColor, avatarFrame: account.avatarFrame || 'none', profileEffect: account.profileEffect || 'none', profileBackground: account.profileBackground || 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: account.showcaseMode || 'featured', cosmeticUnlocks: account.cosmeticUnlocks,
+    bio: aboutVisible ? account.bio : '', tagline: aboutVisible ? account.tagline || '' : '', location: aboutVisible ? account.location || '' : '', socialLinks: aboutVisible ? account.socialLinks : {}, pronouns: aboutVisible ? account.pronouns : '', aboutVisible, activityVisible,
+    status: account.status === 'invisible' && String(profileId) !== String(viewerId) ? 'offline' : account.status, heatScore: account.heatScore, heatTier: account.heatTier, heatStreak: account.heatStreak, createdAt: account.createdAt,
+    stats: { posts: metrics.posts, comments: metrics.comments, guilds: guilds.length, hotTakeVotes: metrics.hotTakeVotes, followers: metrics.followers, following: metrics.following }, heatRank: standing.rank, heatRankTotal: standing.total,
+    badges: badgePayload(unlocks, metrics, standing), activity, collections, isFollowing: following, profileVisibility: String(profileId) === String(viewerId) ? visibility : undefined,
     posts: serializedPosts,
     featuredPosts: serializedPosts.filter(post => featuredIds.has(post.id)),
     guilds: guilds.map(guild => serializeGuild(guild, viewerId)),

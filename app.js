@@ -8,6 +8,9 @@ const defaultState = {
     displayName: 'Guest',
     handle: '@guest',
     bio: '',
+    tagline: '',
+    location: '',
+    profileVisibility: { about: 'public', activity: 'public' },
     avatarUrl: '',
     bannerUrl: '',
     themeColor: '#ff4713',
@@ -24,7 +27,7 @@ const defaultState = {
     status: 'online',
     heatScore: 0,
     heatStreak: { current: 0, longest: 0, lastActiveDate: '', activeDates: [] },
-    digitalTrophies: []
+    badges: []
   },
   settings: {
     appearanceVersion: 2,
@@ -61,7 +64,8 @@ const state = {
       twitter: storedState?.profile?.socialLinks?.twitter || storedState?.profile?.twitter || '',
       instagram: storedState?.profile?.socialLinks?.instagram || storedState?.profile?.instagram || '',
       discord: storedState?.profile?.socialLinks?.discord || storedState?.profile?.discord || ''
-    }
+    },
+    profileVisibility: { ...defaultState.profile.profileVisibility, ...(storedState?.profile?.profileVisibility || {}) }
   },
   settings: {
     ...defaultState.settings,
@@ -92,6 +96,7 @@ const state = {
   publicProfile: null,
   ownProfileData: null,
   profileTab: 'posts',
+  profilePostFilter: 'all',
   analytics: null,
   botAutomation: null,
   analyticsError: '',
@@ -460,9 +465,12 @@ function applySessionUser(user) {
     avatarUrl: user.avatarUrl || state.profile.avatarUrl,
     heatScore: Number(user.heatScore ?? state.profile.heatScore),
     heatStreak: user.heatStreak || state.profile.heatStreak,
-    digitalTrophies: user.digitalTrophies || state.profile.digitalTrophies,
+    badges: user.badges || state.profile.badges,
     postCount: Number(user.postCount ?? state.profile.postCount ?? 0),
     bio: user.bio ?? state.profile.bio,
+    tagline: user.tagline ?? state.profile.tagline,
+    location: user.location ?? state.profile.location,
+    profileVisibility: { ...state.profile.profileVisibility, ...(user.profileVisibility || {}) },
     bannerUrl: user.bannerUrl ?? state.profile.bannerUrl,
     themeColor: user.themeColor || state.profile.themeColor,
     avatarFrame: user.avatarFrame || state.profile.avatarFrame,
@@ -1110,15 +1118,6 @@ function leaderboardExperience(kind) {
   </section>`;
 }
 
-const heatTrophyDefaults = [
-  { key: 'first-spark', name: 'First Spark', days: 3, icon: '✦' },
-  { key: 'week-on-fire', name: 'Week on Fire', days: 7, icon: '🔥' },
-  { key: 'heatwave', name: 'Heatwave', days: 14, icon: '☀' },
-  { key: 'month-ablaze', name: 'Month Ablaze', days: 30, icon: '▥' },
-  { key: 'relentless', name: 'Relentless', days: 100, icon: '⛓' },
-  { key: 'hall-of-heat', name: 'Hall of Heat', days: 365, icon: '♛' }
-];
-
 function heatActivityGrid(streak = {}, days = 84) {
   const active = new Set(streak.activeDates || []);
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -1171,12 +1170,6 @@ function heatYearActivity(streak = {}) {
   return { activeDays, markup: `<div class="heat-year-scroll"><div class="heat-months">${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].map(month => `<span>${month}</span>`).join('')}</div><div class="heat-year-body"><div class="heat-weekdays">${['MON','TUE','WED','THU','FRI','SAT','SUN'].map(day => `<span>${day}</span>`).join('')}</div><div class="heat-year-cells" role="img" aria-label="${year} Heat activity">${cells.join('')}</div></div></div>` };
 }
 
-function digitalTrophyCabinet(user = state.profile) {
-  const longest = Number(user.heatStreak?.longest || 0);
-  const trophies = user.digitalTrophies?.length ? user.digitalTrophies : heatTrophyDefaults.map(trophy => ({ ...trophy, unlocked: longest >= trophy.days }));
-  return `<section class="digital-trophy-cabinet"><header><div><span class="section-kicker">DIGITAL TROPHIES</span><h2>Heat Streak cabinet</h2></div><p>Unlocked by showing up consistently—not by spending money.</p></header><div>${trophies.map(trophy => `<article class="${trophy.unlocked ? 'unlocked' : 'locked'}"><span class="trophy-object">${escapeHtml(trophy.icon)}</span><strong>${escapeHtml(trophy.name)}</strong><small>${trophy.unlocked ? 'Unlocked' : `${Number(trophy.days)} day streak`}</small></article>`).join('')}</div></section>`;
-}
-
 function heatLevelView() {
   const score = Number(state.profile.heatScore || 0);
   const current = heatMilestone(score);
@@ -1194,7 +1187,6 @@ function heatLevelView() {
       <section class="heat-year-card"><header><strong>YOUR HEAT ACTIVITY</strong><span>${new Date().getUTCFullYear()} · YEAR TO DATE</span></header>${yearActivity.markup}<div class="heat-year-legend"><span><i></i>Quiet</span><span><i></i>Active</span><span><i></i>Heating up</span><span><i></i>On fire</span></div></section>
       <aside class="heat-streak-stats"><article><span>▣</span><small>CURRENT</small><strong>${Number(streak.current || 0)}</strong><b>days</b></article><article><span>⚑</span><small>LONGEST</small><strong>${Number(streak.longest || 0)}</strong><b>days</b></article><article><span>✓</span><small>ACTIVE DAYS</small><strong>${yearActivity.activeDays}</strong><b>this year</b></article></aside>
     </section>
-    ${digitalTrophyCabinet(state.profile)}
     <aside class="info-callout heat-rules"><strong>How Heat grows</strong><p>Publish a post: +10 · Add a Take or reply: +4 · First vote or reaction: +1. Any meaningful action keeps that day’s Heat Streak alive; repeated toggling never creates extra Heat.</p></aside>`;
 }
 
@@ -1350,7 +1342,7 @@ function notificationCategory(item) {
   if (['comment', 'reply', 'vote', 'viral_video'].includes(item.type)) return 'takes';
   if (['guild', 'guild_invite'].includes(item.type)) return 'guilds';
   if (item.type === 'message') return 'messages';
-  if (['friend_request', 'friend_accept'].includes(item.type)) return 'social';
+  if (['friend_request', 'friend_accept', 'follow'].includes(item.type)) return 'social';
   return 'system';
 }
 
@@ -1394,7 +1386,7 @@ function savedView() {
     ${saved.length ? `<section class="take-list">${saved.map(postTemplate).join('')}</section>` : emptyState('◇', 'Nothing saved yet', 'Use the bookmark on a real take and it will be collected here.')}`;
 }
 
-function profileView() {
+function legacyProfileView() {
   const profile = state.profile;
   const data = { ...profile, ...(state.ownProfileData || {}), socialLinks: { ...profile.socialLinks, ...(state.ownProfileData?.socialLinks || {}) } };
   const level = heatMilestone(Number(profile.heatScore || 0));
@@ -1410,14 +1402,14 @@ function formatBio(value) {
   return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\n/g, '<br>');
 }
 
-const profileTabNames = ['posts', 'guilds', 'heat'];
-function profileTabs(user = state.profile) {
-  const active = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
-  return `<nav class="profile-tabs" aria-label="Profile sections">${profileTabNames.map(tab => `<button type="button" data-profile-tab="${tab}" class="${active === tab ? 'active' : ''}">${tab.charAt(0).toUpperCase()}${tab.slice(1)}</button>`).join('')}</nav>`;
+const legacyProfileTabNames = ['posts', 'guilds', 'heat'];
+function legacyProfileTabs(user = state.profile) {
+  const active = legacyProfileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
+  return `<nav class="profile-tabs" aria-label="Profile sections">${legacyProfileTabNames.map(tab => `<button type="button" data-profile-tab="${tab}" class="${active === tab ? 'active' : ''}">${tab.charAt(0).toUpperCase()}${tab.slice(1)}</button>`).join('')}</nav>`;
 }
 
-function profileTabPanel(user) {
-  const tab = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
+function legacyProfileTabPanel(user) {
+  const tab = legacyProfileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
   const allPosts = user.posts || [];
   const posts = user.showcaseMode === 'featured' && user.featuredPosts?.length ? user.featuredPosts : [...allPosts].sort((a, b) => user.showcaseMode === 'popular' ? (Number(b.alrightVotes || 0) + Number(b.cringeVotes || 0)) - (Number(a.alrightVotes || 0) + Number(a.cringeVotes || 0)) : user.showcaseMode === 'controversial' ? Math.abs(Number(a.alrightVotes || 0) - Number(a.cringeVotes || 0)) - Math.abs(Number(b.alrightVotes || 0) - Number(b.cringeVotes || 0)) : new Date(b.createdAt) - new Date(a.createdAt));
   if (tab === 'posts') return `<section class="profile-tab-panel">${posts.length ? `<div class="profile-post-list">${posts.map(post => `<article><small>${escapeHtml(post.category || 'Take')} · ${timeLabel(new Date(post.createdAt).getTime())}</small><strong>${formatPostContent(post.content || '')}</strong><span>${Number(post.alrightVotes || 0)} Based · ${Number(post.cringeVotes || 0)} Hot Take</span></article>`).join('')}</div>` : emptyState('✦', 'No posts yet', 'Published takes will appear on this profile.')}</section>`;
@@ -1425,16 +1417,96 @@ function profileTabPanel(user) {
   const score = Number(user.heatScore || 0);
   const level = heatMilestone(score);
   const streak = user.heatStreak || {};
-  return `<section class="profile-tab-panel profile-heat-panel"><div class="profile-heat-grid"><article class="profile-heat-level" style="--heat-accent:${level.color}"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">HEAT LEVEL</span><h2>${escapeHtml(level.name)}</h2><strong>${score.toLocaleString()} Heat · Level ${level.level}</strong><div class="mini-heat-track"><span style="width:${level.progress}%"></span></div><small>${level.level === 6 ? 'Highest level reached' : `${level.remaining.toLocaleString()} Heat to the next level`}</small></div></article><article class="profile-heat-streak"><span>🔥</span><div><span class="section-kicker">HEAT STREAK</span><h2>${Number(streak.current || 0)} days</h2><p>Longest: ${Number(streak.longest || 0)} days</p></div>${heatActivityGrid(streak, 56)}</article></div>${digitalTrophyCabinet(user)}</section>`;
+  return `<section class="profile-tab-panel profile-heat-panel"><div class="profile-heat-grid"><article class="profile-heat-level" style="--heat-accent:${level.color}"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">HEAT LEVEL</span><h2>${escapeHtml(level.name)}</h2><strong>${score.toLocaleString()} Heat · Level ${level.level}</strong><div class="mini-heat-track"><span style="width:${level.progress}%"></span></div><small>${level.level === 6 ? 'Highest level reached' : `${level.remaining.toLocaleString()} Heat to the next level`}</small></div></article><article class="profile-heat-streak"><span>🔥</span><div><span class="section-kicker">HEAT STREAK</span><h2>${Number(streak.current || 0)} days</h2><p>Longest: ${Number(streak.longest || 0)} days</p></div>${heatActivityGrid(streak, 56)}</article></div></section>`;
 }
 
-function publicUserView() {
+function legacyPublicUserView() {
   const user = state.publicProfile;
   const id = decodeURIComponent(location.hash.split('/')[1] || '');
   if (!user || String(user.id) !== id) return `${pageHeader('PROFILE', 'Loading profile…', 'Fetching the latest public account details.')}`;
   const level = heatMilestone(Number(user.heatScore || 0));
   const friendButton = user.requestIncoming ? `<button class="quiet-action" type="button" data-accept-friend="${user.friendshipId}">Accept friend</button>` : `<button class="quiet-action" type="button" data-friend-user="${user.id}" ${['accepted','pending'].includes(user.friendship) ? 'disabled' : ''}>${user.friendship === 'accepted' ? 'Friends ✓' : user.friendship === 'pending' ? 'Request pending' : 'Add friend'}</button>`;
   return `<section class="public-user-card profile-bg-${escapeHtml(user.profileBackground || 'clean')} profile-effect-${escapeHtml(user.profileEffect || 'none')}" style="--profile-accent:${escapeHtml(user.themeColor || '#ff4713')}"><div class="public-user-banner">${user.bannerUrl ? `<img src="${escapeHtml(user.bannerUrl)}" alt="" />` : ''}</div><div class="public-user-main"><span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><h1>${escapeHtml(user.displayName)}${user.isAutomated ? ' <span class="automation-label">AUTOMATED</span>' : ''}</h1><p>${escapeHtml(user.handle || '')}${user.pronouns ? ` · ${escapeHtml(user.pronouns)}` : ''}</p><small>${user.isAutomated ? `${escapeHtml(user.automationPersona || 'Callout automation')} · Clearly labelled automated account` : `${Number(user.heatScore || 0).toLocaleString()} Heat · ${escapeHtml(level.name)} · Level ${level.level}`}</small>${user.bio ? `<p class="profile-bio-line">${escapeHtml(user.bio.slice(0, 180))}</p>` : ''}</div><div class="public-user-actions">${user.isAutomated ? '<span class="automation-notice">Operated by Callout</span>' : user.friendship === 'self' ? '<button class="quiet-action" data-open-settings>Edit profile</button>' : `${friendButton}<button class="primary-action" type="button" data-message-user="${user.id}">Message</button>`}</div></div>${profileTabs(user)}${profileTabPanel(user)}</section>`;
+}
+
+const profileTabNames = ['posts', 'guilds', 'heat', 'about', 'activity', 'collections'];
+
+function profileAvatar(user, className = '') {
+  return `<span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)} ${className}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(user.displayName || 'Callout member')}" />` : escapeHtml((user.displayName || 'C').charAt(0).toUpperCase())}</span>`;
+}
+
+function profileBadgeShelf(user) {
+  const badges = user.badges || [];
+  const defaults = [
+    { key: 'hot-take', name: 'Hot Take', description: '100+ Hot Take votes received', icon: '♨', tone: 'hot', value: 0, target: 100 },
+    { key: 'debater', name: 'Debater', description: '50+ Takes published', icon: '◯', tone: 'mint', value: 0, target: 50 },
+    { key: 'wordsmith', name: 'Wordsmith', description: '10+ posts published', icon: '✎', tone: 'blue', value: 0, target: 10 },
+    { key: 'top-heat', name: 'Top 10%', description: 'Current Global Heat rank', icon: '♛', tone: 'violet', value: 0, target: 1, dynamic: true }
+  ];
+  const rows = defaults.map(item => ({ ...item, ...(badges.find(badge => badge.key === item.key) || {}) }));
+  return `<section class="profile-badge-shelf"><header><div><span class="section-kicker">BADGES</span><h2>Callout credentials</h2></div><p>Earned from genuine contributions. Never bought.</p></header><div>${rows.map(badge => `<article class="badge-${escapeHtml(badge.tone)} ${badge.unlocked ? 'unlocked' : 'locked'}"><span>${escapeHtml(badge.icon)}</span><strong>${escapeHtml(badge.name)}</strong><small>${badge.unlocked ? escapeHtml(badge.description) : `${Number(badge.value || 0).toLocaleString()} / ${Number(badge.target || 1).toLocaleString()}`}</small><i><b style="width:${Math.min(100, Number(badge.progress || 0))}%"></b></i></article>`).join('')}</div></section>`;
+}
+
+function profileTabs() {
+  const active = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
+  return `<nav class="profile-dossier-tabs" aria-label="Profile sections">${profileTabNames.map(tab => `<button type="button" data-profile-tab="${tab}" class="${active === tab ? 'active' : ''}">${tab.charAt(0).toUpperCase()}${tab.slice(1)}</button>`).join('')}</nav>`;
+}
+
+function profilePostPanel(user, own = false) {
+  const categories = ['all', ...new Set((user.posts || []).map(post => post.category).filter(Boolean))];
+  const selected = categories.includes(state.profilePostFilter) ? state.profilePostFilter : 'all';
+  const posts = (user.posts || []).filter(post => selected === 'all' || post.category === selected);
+  return `<section class="dossier-panel profile-post-panel"><header><div><span class="section-kicker">RECENT POSTS</span><h2>${posts.length} public post${posts.length === 1 ? '' : 's'}</h2></div><label>Filter<select data-profile-post-filter>${categories.map(category => `<option value="${escapeHtml(category)}" ${category === selected ? 'selected' : ''}>${category === 'all' ? 'All posts' : escapeHtml(category)}</option>`).join('')}</select></label></header><div>${posts.length ? posts.slice(0, 12).map(post => `<article class="dossier-post" data-profile-post="${post.id}"><small>${escapeHtml(post.category || 'Callout')} · ${timeLabel(new Date(post.createdAt).getTime())}</small><strong>${formatPostContent(post.content || '')}</strong><footer><span>${Number(post.alrightVotes || 0)} Based · ${Number(post.cringeVotes || 0)} Hot Take</span><span>${own ? `<button type="button" data-add-post-collection="${post.id}">＋ Collection</button>` : ''}<button type="button" data-open-profile-post="${post.id}">Open →</button></span></footer></article>`).join('') : emptyState('✦', 'No posts to show', 'Published public posts will appear here.')}</div></section>`;
+}
+
+function profileGuildPanel(user) {
+  return `<section class="dossier-panel"><header><div><span class="section-kicker">GUILDS</span><h2>Communities</h2></div></header>${user.guilds?.length ? `<div class="dossier-guild-grid">${user.guilds.map(guild => `<button type="button" data-open-guild="${guild.id}"><span class="guild-monogram">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><span><strong>${escapeHtml(guild.name)}</strong><small>${Number(guild.memberCount || 0)} members</small></span></button>`).join('')}</div>` : emptyState('⚔', 'No public Guilds', 'Public Guild memberships will appear here.')}</section>`;
+}
+
+function profileHeatPanel(user) {
+  const score = Number(user.heatScore || 0); const level = heatMilestone(score); const streak = user.heatStreak || {};
+  return `<section class="dossier-panel dossier-heat-panel"><div class="profile-heat-grid"><article class="profile-heat-level" style="--heat-accent:${level.color}"><span class="heat-tier-emblem">${calloutGlyph('personal')}</span><div><span class="section-kicker">HEAT LEVEL</span><h2>${escapeHtml(level.name)}</h2><strong>${score.toLocaleString()} Heat · Level ${level.level}</strong><div class="mini-heat-track"><span style="width:${level.progress}%"></span></div><small>${level.level === 6 ? 'Highest level reached' : `${level.remaining.toLocaleString()} Heat to the next level`}</small></div></article><article class="profile-heat-streak"><span>♨</span><div><span class="section-kicker">HEAT STREAK</span><h2>${Number(streak.current || 0)} days</h2><p>Longest: ${Number(streak.longest || 0)} days</p></div>${heatActivityGrid(streak, 56)}</article></div><button class="quiet-action" type="button" data-open-heat>Open full Heat dashboard →</button></section>`;
+}
+
+function profileAboutPanel(user) {
+  if (user.aboutVisible === false) return `<section class="dossier-panel">${emptyState('◈', 'About is private', 'This member controls who can see their About section.')}</section>`;
+  const socials = Object.entries(user.socialLinks || {}).filter(([, value]) => value);
+  return `<section class="dossier-panel dossier-about"><header><div><span class="section-kicker">ABOUT ME</span><h2>${escapeHtml(user.tagline || 'Call it like you see it.')}</h2></div></header><p>${user.bio ? formatBio(user.bio) : 'This member has not written an About section yet.'}</p><dl>${user.location ? `<div><dt>Location</dt><dd>${escapeHtml(user.location)}</dd></div>` : ''}${user.pronouns ? `<div><dt>Pronouns</dt><dd>${escapeHtml(user.pronouns)}</dd></div>` : ''}<div><dt>Joined</dt><dd>${new Date(user.createdAt || Date.now()).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })}</dd></div></dl>${socials.length ? `<footer>${socials.map(([name, value]) => `<a href="${/^https:\/\//i.test(value) ? escapeHtml(value) : '#'}" ${/^https:\/\//i.test(value) ? 'target="_blank" rel="noopener"' : ''}>${escapeHtml(name)}</a>`).join('')}</footer>` : ''}</section>`;
+}
+
+function profileActivityPanel(user) {
+  if (user.activityVisible === false) return `<section class="dossier-panel">${emptyState('◷', 'Activity is private', 'This member controls who can see their contribution history.')}</section>`;
+  const activity = user.activity || [];
+  return `<section class="dossier-panel dossier-activity"><header><div><span class="section-kicker">ACTIVITY</span><h2>Contribution history</h2></div><small>Votes stay private</small></header><div>${activity.length ? activity.map(item => `<article><span>${({ joined: '◉', post: '✎', take: '◯', guild_join: '⚔', guild_founder: '♛', badge: '◆', top_heat: '♨' })[item.type] || '✦'}</span><div><strong>${escapeHtml(item.text || item.type)}</strong><small>${new Date(item.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</small></div>${item.post ? `<button type="button" data-open-profile-post="${item.post}">Open</button>` : item.guild ? `<button type="button" data-open-guild="${item.guild}">Open</button>` : ''}</article>`).join('') : emptyState('◷', 'No activity yet', 'Posts, Takes, Guild joins and milestones will appear here.')}</div></section>`;
+}
+
+function profileCollectionsPanel(user, own) {
+  const collections = user.collections || [];
+  return `<section class="dossier-panel dossier-collections"><header><div><span class="section-kicker">COLLECTIONS</span><h2>Curated by ${own ? 'you' : escapeHtml(user.displayName)}</h2></div>${own ? '<button class="primary-action" type="button" data-create-collection>＋ New collection</button>' : ''}</header>${collections.length ? `<div>${collections.map(collection => `<article><div class="collection-cover">${collection.coverUrl ? `<img src="${escapeHtml(collection.coverUrl)}" alt="" />` : `<span>${collection.type === 'portfolio' ? '▣' : '◇'}</span>`}</div><div><small>${escapeHtml(collection.type)} · ${escapeHtml(collection.visibility)}</small><h3>${escapeHtml(collection.title)}</h3><p>${escapeHtml(collection.description || 'No description')}</p><strong>${Number(collection.postCount || 0)} posts</strong></div>${own ? `<button type="button" data-edit-collection="${collection.id}">Manage</button>` : ''}</article>`).join('')}</div>` : emptyState('◇', 'No visible collections', own ? 'Create a private saved folder or a public creator portfolio.' : 'This member has no collections visible to you.')}</section>`;
+}
+
+function profileTabPanel(user, own = false) {
+  const tab = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
+  return ({ posts: value => profilePostPanel(value, own), guilds: profileGuildPanel, heat: profileHeatPanel, about: profileAboutPanel, activity: profileActivityPanel, collections: value => profileCollectionsPanel(value, own) })[tab](user);
+}
+
+function profileDossier(user, own = false) {
+  const level = heatMilestone(Number(user.heatScore || 0)); const stats = user.stats || {};
+  const actions = own ? '<button class="quiet-action" type="button" data-open-settings>Edit profile</button><button class="icon-button" type="button" aria-label="Profile options">•••</button>' : `<button class="profile-follow-action ${user.isFollowing ? 'following' : ''}" type="button" data-follow-user="${user.id}">${user.isFollowing ? 'Following' : 'Follow'}</button>${user.requestIncoming ? `<button class="quiet-action" type="button" data-accept-friend="${user.friendshipId}">Accept friend</button>` : `<button class="quiet-action" type="button" data-friend-user="${user.id}" ${['accepted','pending'].includes(user.friendship) ? 'disabled' : ''}>${user.friendship === 'accepted' ? 'Friends ✓' : user.friendship === 'pending' ? 'Request pending' : 'Add friend'}</button>`}<button class="primary-action" type="button" data-message-user="${user.id}">Message</button>`;
+  return `<section class="profile-dossier profile-bg-${escapeHtml(user.profileBackground || 'clean')} profile-effect-${escapeHtml(user.profileEffect || 'none')}" style="--profile-accent:${escapeHtml(user.themeColor || '#ff4713')}"><header class="dossier-toolbar"><span>USER PROFILE</span><div>${actions}</div></header><div class="dossier-identity"><div class="dossier-photo">${profileAvatar(user, 'dossier-avatar')}</div><div class="dossier-main"><div class="dossier-name"><h1>${escapeHtml(user.displayName || 'Callout member')}</h1><i class="status-dot ${escapeHtml(user.status || 'offline')}"></i></div><p>${escapeHtml(user.handle || '')}${user.pronouns ? ` · ${escapeHtml(user.pronouns)}` : ''}</p>${user.tagline ? `<blockquote>“${escapeHtml(user.tagline)}”</blockquote>` : ''}<button class="dossier-heat-card" type="button" data-open-heat><span>${calloutGlyph('personal')}</span><strong>${Number(user.heatScore || 0).toLocaleString()} HEAT</strong><small>${escapeHtml(level.name)} · Level ${level.level}</small><b>›</b></button><div class="dossier-stats"><span><small>RANK</small><strong>${user.heatRank ? `#${Number(user.heatRank).toLocaleString()}` : '—'}</strong></span><span><small>POSTS</small><strong>${Number(stats.posts || 0).toLocaleString()}</strong></span><span><small>HOT TAKES</small><strong>${Number(stats.hotTakeVotes || 0).toLocaleString()}</strong></span><button type="button" data-profile-connections="followers" data-profile-user="${user.id}"><small>FOLLOWERS</small><strong>${Number(stats.followers || 0).toLocaleString()}</strong></button><button type="button" data-profile-connections="following" data-profile-user="${user.id}"><small>FOLLOWING</small><strong>${Number(stats.following || 0).toLocaleString()}</strong></button></div><dl class="dossier-meta"><div><dt>JOINED</dt><dd>${new Date(user.createdAt || Date.now()).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })}</dd></div><div><dt>STATUS</dt><dd>${escapeHtml(String(user.status || 'offline').toUpperCase())}</dd></div>${user.location ? `<div><dt>LOCATION</dt><dd>${escapeHtml(user.location)}</dd></div>` : ''}</dl></div></div>${profileTabs()}${profileTabPanel(user, own)}${profileBadgeShelf(user)}</section>`;
+}
+
+function profileView() {
+  if (!sessionUser) return `${pageHeader('PROFILE', 'Sign in to build your identity', 'Your Heat, badges, collections and activity live on your Callout profile.', '<button class="primary-action" data-go-auth>Sign in</button>')}`;
+  const data = { ...state.profile, ...(state.ownProfileData || {}), socialLinks: { ...state.profile.socialLinks, ...(state.ownProfileData?.socialLinks || {}) } };
+  return profileDossier(data, true);
+}
+
+function publicUserView() {
+  const user = state.publicProfile; const id = decodeURIComponent(location.hash.split('/')[1] || '');
+  if (!user || String(user.id) !== id) return pageHeader('PROFILE', 'Loading profile…', 'Fetching the latest public identity.');
+  if (user.isAutomated) return `${profileDossier(user, false)}<aside class="info-callout"><strong>Automated account</strong><p>This profile is operated by Callout and is clearly excluded from Global Heat rank.</p></aside>`;
+  return profileDossier(user, user.friendship === 'self');
 }
 
 function settingsView() {
@@ -1464,10 +1536,11 @@ function settingsView() {
       </section>
       <section class="settings-section"><div class="settings-section-head"><div><span class="settings-icon">✎</span><div><h2>Profile customization</h2><p>Build a profile that feels distinctly yours.</p></div></div></div>
         <div class="profile-live-preview" id="profilePreview" style="--profile-accent:${escapeHtml(state.profile.themeColor)}"><div class="preview-banner" id="bannerPreview">${state.profile.bannerUrl ? `<img src="${escapeHtml(state.profile.bannerUrl)}" alt="Banner preview" />` : ''}</div><div>${avatarMarkup('preview-avatar')}<span><strong id="previewName">${escapeHtml(state.profile.displayName)}</strong><small id="previewStatus">${escapeHtml(state.profile.status)}</small></span><b>${Number(state.profile.heatScore || 0).toLocaleString()} HEAT</b></div></div>
-        <div class="form-grid"><label>Display name<input name="displayName" maxlength="40" value="${escapeHtml(state.profile.displayName)}" required /></label><label>Username<input name="handle" maxlength="30" value="${escapeHtml(state.profile.handle)}" required /></label><label>Pronouns<input name="pronouns" maxlength="40" value="${escapeHtml(state.profile.pronouns)}" placeholder="e.g. they/them" /></label><label>Online status<select name="status"><option value="online" ${state.profile.status === 'online' ? 'selected' : ''}>Online</option><option value="idle" ${state.profile.status === 'idle' ? 'selected' : ''}>Idle</option><option value="dnd" ${state.profile.status === 'dnd' ? 'selected' : ''}>Do Not Disturb</option><option value="invisible" ${state.profile.status === 'invisible' ? 'selected' : ''}>Invisible</option></select></label></div>
+        <div class="form-grid"><label>Display name<input name="displayName" maxlength="40" value="${escapeHtml(state.profile.displayName)}" required /></label><label>Username<input name="handle" maxlength="30" value="${escapeHtml(state.profile.handle)}" required /></label><label>Pronouns<input name="pronouns" maxlength="40" value="${escapeHtml(state.profile.pronouns)}" placeholder="e.g. they/them" /></label><label>Online status<select name="status"><option value="online" ${state.profile.status === 'online' ? 'selected' : ''}>Online</option><option value="idle" ${state.profile.status === 'idle' ? 'selected' : ''}>Idle</option><option value="dnd" ${state.profile.status === 'dnd' ? 'selected' : ''}>Do Not Disturb</option><option value="invisible" ${state.profile.status === 'invisible' ? 'selected' : ''}>Invisible</option></select></label><label>Profile tagline<input name="tagline" maxlength="80" value="${escapeHtml(state.profile.tagline || '')}" placeholder="One line that sounds like you" /></label><label>Location<input name="location" maxlength="80" value="${escapeHtml(state.profile.location || '')}" placeholder="City, country or anywhere you claim" /></label></div>
         <div class="form-grid"><label>Profile banner<input id="bannerUpload" type="file" accept="image/*" /><small>PNG, JPG, GIF, or WebP. Maximum 2 MB.</small></label><label>Avatar or animated GIF<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><small>Animated GIF avatars are supported. Maximum 2 MB.</small></label><label>Theme color<div class="color-control"><input name="themeColor" type="color" value="${escapeHtml(state.profile.themeColor)}" /><output id="colorHex">${escapeHtml(state.profile.themeColor)}</output></div></label><label>Avatar frame<select name="avatarFrame">${['none','spark','gold','violet','flame'].map(frame => `<option value="${frame}" ${state.profile.avatarFrame === frame ? 'selected' : ''}>${frame}</option>`).join('')}</select></label></div>
         <input type="hidden" name="bannerUrl" value="${escapeHtml(state.profile.bannerUrl)}" /><input type="hidden" name="avatarUrl" value="${escapeHtml(state.profile.avatarUrl)}" />
         <label>About Me <span class="field-counter" id="bioCounter">${state.profile.bio.length} / 1000</span><textarea name="bio" maxlength="1000" placeholder="Use **bold**, *italic*, and line breaks to tell your story.">${escapeHtml(state.profile.bio)}</textarea></label>
+        <div class="profile-privacy-grid"><label>Who can see About?<select name="aboutVisibility"><option value="public" ${state.profile.profileVisibility?.about === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${state.profile.profileVisibility?.about === 'friends' ? 'selected' : ''}>Friends</option><option value="private" ${state.profile.profileVisibility?.about === 'private' ? 'selected' : ''}>Private</option></select><small>Controls your bio, tagline, location and social links.</small></label><label>Who can see Activity?<select name="activityVisibility"><option value="public" ${state.profile.profileVisibility?.activity === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${state.profile.profileVisibility?.activity === 'friends' ? 'selected' : ''}>Friends</option><option value="private" ${state.profile.profileVisibility?.activity === 'private' ? 'selected' : ''}>Private</option></select><small>Your individual voting choices are never shown.</small></label></div>
         <div class="social-fields"><h3>Social media</h3><label><span>𝕏</span><input name="twitter" value="${escapeHtml(state.profile.socialLinks.twitter)}" placeholder="x.com/username" /></label><label><span>◎</span><input name="instagram" value="${escapeHtml(state.profile.socialLinks.instagram)}" placeholder="instagram.com/username" /></label><label><span>◈</span><input name="discord" value="${escapeHtml(state.profile.socialLinks.discord)}" placeholder="Discord username" /></label><label><span>▶</span><input name="youtube" value="${escapeHtml(state.profile.socialLinks.youtube)}" placeholder="youtube.com/@channel" /></label><label><span>◉</span><input name="twitch" value="${escapeHtml(state.profile.socialLinks.twitch)}" placeholder="twitch.tv/username" /></label><label><span>↗</span><input name="custom" value="${escapeHtml(state.profile.socialLinks.custom)}" placeholder="https://your-site.example" /></label></div>
       </section>
       <section class="settings-section"><div class="settings-section-head"><div><span class="settings-icon">⊘</span><div><h2>Blocked & muted users</h2><p>Accounts you have restricted will be listed here.</p></div></div></div>
@@ -1830,6 +1903,13 @@ function bindViewInteractions(route) {
     [order[index], order[next]] = [order[next], order[index]]; state.profile.profileLayout = order; renderRoute();
   }));
   document.querySelectorAll('[data-profile-tab]').forEach(button => button.addEventListener('click', () => { state.profileTab = button.dataset.profileTab; renderRoute(); }));
+  document.querySelectorAll('[data-follow-user]').forEach(button => button.addEventListener('click', toggleProfileFollow));
+  document.querySelectorAll('[data-profile-connections]').forEach(button => button.addEventListener('click', openProfileConnections));
+  document.querySelectorAll('[data-profile-post-filter]').forEach(select => select.addEventListener('change', () => { state.profilePostFilter = select.value; renderRoute(); }));
+  document.querySelectorAll('[data-open-profile-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openProfilePost}`)));
+  document.querySelector('[data-create-collection]')?.addEventListener('click', openCreateCollection);
+  document.querySelectorAll('[data-edit-collection]').forEach(button => button.addEventListener('click', () => openCollectionManager(button.dataset.editCollection)));
+  document.querySelectorAll('[data-add-post-collection]').forEach(button => button.addEventListener('click', () => openCollectionPicker(button.dataset.addPostCollection)));
   document.querySelector('[data-back-feed]')?.addEventListener('click', () => navigate('home'));
   document.querySelector('#commentForm')?.addEventListener('submit', addComment);
   document.querySelector('[data-expand-comment]')?.addEventListener('click', event => {
@@ -1992,6 +2072,80 @@ async function sendFriendRequest(event) {
 async function acceptFriendRequestFromProfile(event) {
   try { await apiFetch(`/api/friends/${event.currentTarget.dataset.acceptFriend}/accept`, { method: 'POST' }); await Promise.all([hydrateAccountData(), hydratePublicProfile()]); renderRoute(); showToast('Friend added.'); }
   catch (error) { showToast(error.message); }
+}
+
+async function toggleProfileFollow(event) {
+  if (!sessionUser) return navigate('auth');
+  const button = event.currentTarget;
+  const userId = button.dataset.followUser;
+  button.disabled = true;
+  try {
+    await apiFetch(`/api/users/${userId}/follow`, { method: button.classList.contains('following') ? 'DELETE' : 'POST' });
+    await Promise.all([hydratePublicProfile(), hydrateOwnProfile(), hydrateAccountData()]);
+    renderRoute();
+    showToast(button.classList.contains('following') ? 'Unfollowed.' : 'You are now following this profile.');
+  } catch (error) { button.disabled = false; showToast(error.message); }
+}
+
+async function openProfileConnections(event) {
+  const { profileConnections: direction, profileUser: userId } = event.currentTarget.dataset;
+  try {
+    const payload = await apiFetch(`/api/users/${userId}/${direction}`, {}, false);
+    const title = direction === 'followers' ? 'Followers' : 'Following';
+    const rows = (payload.users || []).map(user => `<button type="button" class="connection-row" data-connection-user="${user.id}">${profileAvatar(user)}<span><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.handle || '')}</small></span><b>View →</b></button>`).join('');
+    showActionDialog(actionDialogShell('PROFILE CONNECTIONS', `${Number(payload.total || 0).toLocaleString()} ${title}`, `<div class="connection-list">${rows || `<p class="dialog-copy">No ${title.toLowerCase()} yet.</p>`}</div>`));
+    document.querySelectorAll('[data-connection-user]').forEach(button => button.addEventListener('click', () => { closeActionDialog(); navigate(`user/${button.dataset.connectionUser}`); }));
+  } catch (error) { showToast(error.message); }
+}
+
+function collectionForm(collection = {}) {
+  return `<form id="collectionForm"><label>Collection type<select name="type" ${collection.id ? 'disabled' : ''}><option value="saved" ${collection.type === 'saved' ? 'selected' : ''}>Saved collection</option><option value="portfolio" ${collection.type === 'portfolio' ? 'selected' : ''}>Creator portfolio</option></select><small>Portfolios can contain only your own public posts.</small></label><label>Title<input name="title" maxlength="80" value="${escapeHtml(collection.title || '')}" required /></label><label>Description<textarea name="description" maxlength="240">${escapeHtml(collection.description || '')}</textarea></label><label>Cover image URL<input name="coverUrl" type="url" maxlength="1000" value="${escapeHtml(collection.coverUrl || '')}" placeholder="https://…" /></label><label>Visibility<select name="visibility"><option value="private" ${!collection.visibility || collection.visibility === 'private' ? 'selected' : ''}>Private</option><option value="friends" ${collection.visibility === 'friends' ? 'selected' : ''}>Friends</option><option value="public" ${collection.visibility === 'public' ? 'selected' : ''}>Public</option></select></label><button class="primary-action" type="submit">${collection.id ? 'Save collection' : 'Create collection'}</button></form>`;
+}
+
+function openCreateCollection() {
+  showActionDialog(actionDialogShell('NEW COLLECTION', 'Curate your Callout', collectionForm()));
+  document.querySelector('#collectionForm').addEventListener('submit', async event => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
+    try { await apiFetch('/api/collections', { method: 'POST', body: JSON.stringify(values) }); await hydrateOwnProfile(); closeActionDialog(); state.profileTab = 'collections'; renderRoute(); showToast('Collection created privately.'); }
+    catch (error) { showToast(error.message); }
+  });
+}
+
+function openCollectionManager(collectionId) {
+  const collection = state.ownProfileData?.collections?.find(item => String(item.id) === String(collectionId));
+  if (!collection) return showToast('Collection could not be found.');
+  const items = (collection.posts || []).map((post, index) => `<article class="collection-manage-item" data-collection-item="${post.id}"><span><strong>${escapeHtml((post.content || 'Post').slice(0, 90))}</strong><small>${escapeHtml(post.category || 'Callout')}</small></span><div><button type="button" data-move-collection="${post.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move-collection="${post.id}" data-direction="1" ${index === collection.posts.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-remove-collection="${post.id}">Remove</button></div></article>`).join('');
+  showActionDialog(actionDialogShell('MANAGE COLLECTION', collection.title, `${collectionForm(collection)}<section class="collection-manage-list"><h3>Ordered posts</h3>${items || '<p>No posts have been added yet.</p>'}</section><button class="danger-action collection-delete" type="button" data-delete-collection>Delete collection</button>`));
+  document.querySelector('#collectionForm').addEventListener('submit', async event => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); delete values.type;
+    try { await apiFetch(`/api/collections/${collection.id}`, { method: 'PATCH', body: JSON.stringify(values) }); await hydrateOwnProfile(); closeActionDialog(); renderRoute(); showToast('Collection updated.'); }
+    catch (error) { showToast(error.message); }
+  });
+  document.querySelectorAll('[data-remove-collection]').forEach(button => button.addEventListener('click', async () => {
+    try { await apiFetch(`/api/collections/${collection.id}/posts/${button.dataset.removeCollection}`, { method: 'DELETE' }); await hydrateOwnProfile(); closeActionDialog(); renderRoute(); showToast('Post removed.'); }
+    catch (error) { showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-move-collection]').forEach(button => button.addEventListener('click', async () => {
+    const ids = collection.posts.map(post => String(post.id)); const index = ids.indexOf(String(button.dataset.moveCollection)); const next = index + Number(button.dataset.direction);
+    if (next < 0 || next >= ids.length) return; [ids[index], ids[next]] = [ids[next], ids[index]];
+    try { await apiFetch(`/api/collections/${collection.id}/order`, { method: 'PATCH', body: JSON.stringify({ postIds: ids }) }); await hydrateOwnProfile(); closeActionDialog(); openCollectionManager(collection.id); }
+    catch (error) { showToast(error.message); }
+  }));
+  document.querySelector('[data-delete-collection]').addEventListener('click', async () => {
+    if (!window.confirm(`Delete “${collection.title}”?`)) return;
+    try { await apiFetch(`/api/collections/${collection.id}`, { method: 'DELETE' }); await hydrateOwnProfile(); closeActionDialog(); renderRoute(); showToast('Collection deleted.'); }
+    catch (error) { showToast(error.message); }
+  });
+}
+
+function openCollectionPicker(postId) {
+  const collections = state.ownProfileData?.collections || [];
+  if (!collections.length) return openCreateCollection();
+  showActionDialog(actionDialogShell('ADD TO COLLECTION', 'Choose a collection', `<div class="collection-picker">${collections.map(collection => `<button type="button" data-pick-collection="${collection.id}"><span><strong>${escapeHtml(collection.title)}</strong><small>${escapeHtml(collection.type)} · ${escapeHtml(collection.visibility)}</small></span><b>＋</b></button>`).join('')}</div>`));
+  document.querySelectorAll('[data-pick-collection]').forEach(button => button.addEventListener('click', async () => {
+    try { await apiFetch(`/api/collections/${button.dataset.pickCollection}/posts`, { method: 'POST', body: JSON.stringify({ postId }) }); await hydrateOwnProfile(); closeActionDialog(); showToast('Post added to collection.'); }
+    catch (error) { showToast(error.message); }
+  }));
 }
 
 function renderMessageComposer() {
@@ -2895,6 +3049,9 @@ async function saveSettings(event) {
     displayName: sanitizeInput(formData.get('displayName')),
     handle: sanitizeInput(formData.get('handle')).toLowerCase().replace(/\s+/g, '_'),
     bio: sanitizeInput(formData.get('bio')),
+    tagline: sanitizeInput(formData.get('tagline')),
+    location: sanitizeInput(formData.get('location')),
+    profileVisibility: { about: formData.get('aboutVisibility') || 'public', activity: formData.get('activityVisibility') || 'public' },
     avatarUrl: formData.get('avatarUrl') || state.profile.avatarUrl,
     bannerUrl: formData.get('bannerUrl') || '',
     themeColor: formData.get('themeColor'),
@@ -2914,7 +3071,7 @@ async function saveSettings(event) {
   state.profile.handle = `@${state.profile.handle.slice(1).replace(/[^a-z0-9_]/g, '').slice(0, 29)}`;
   try {
     if (sessionUser) {
-      const payload = await apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl, bio: state.profile.bio, bannerUrl: state.profile.bannerUrl, themeColor: state.profile.themeColor, avatarFrame: state.profile.avatarFrame, profileEffect: state.profile.profileEffect, profileBackground: state.profile.profileBackground, profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: state.profile.showcaseMode, featuredPosts: state.profile.featuredPosts || [], pinnedGuilds: state.profile.pinnedGuilds || [], socialLinks: state.profile.socialLinks, pronouns: state.profile.pronouns, status: state.profile.status, preferences: { theme: state.settings.theme, palette: state.settings.palette, reducedMotion: state.settings.reducedMotion, feedDensity: state.settings.feedDensity, voteEffect: state.settings.voteEffect, notificationSound: state.settings.notificationSound, widgetOrder: state.settings.widgetOrder, hiddenTopics: state.settings.hiddenTopics, notifications: state.settings.notifications, notificationDelivery: state.settings.notificationDelivery, directMessages: state.settings.directMessages, textSize: state.settings.textSize } }) });
+      const payload = await apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ displayName: state.profile.displayName, handle: state.profile.handle, avatarUrl: state.profile.avatarUrl, bio: state.profile.bio, tagline: state.profile.tagline, location: state.profile.location, profileVisibility: state.profile.profileVisibility, bannerUrl: state.profile.bannerUrl, themeColor: state.profile.themeColor, avatarFrame: state.profile.avatarFrame, profileEffect: state.profile.profileEffect, profileBackground: state.profile.profileBackground, profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: state.profile.showcaseMode, featuredPosts: state.profile.featuredPosts || [], pinnedGuilds: state.profile.pinnedGuilds || [], socialLinks: state.profile.socialLinks, pronouns: state.profile.pronouns, status: state.profile.status, preferences: { theme: state.settings.theme, palette: state.settings.palette, reducedMotion: state.settings.reducedMotion, feedDensity: state.settings.feedDensity, voteEffect: state.settings.voteEffect, notificationSound: state.settings.notificationSound, widgetOrder: state.settings.widgetOrder, hiddenTopics: state.settings.hiddenTopics, notifications: state.settings.notifications, notificationDelivery: state.settings.notificationDelivery, directMessages: state.settings.directMessages, textSize: state.settings.textSize } }) });
       applySessionUser(payload.user); await hydrateOwnProfile();
     }
     persist(); applyDisplaySettings(); document.querySelector('#headerName').textContent = state.profile.displayName; renderRoute(); showToast('Settings saved.');

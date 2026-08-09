@@ -56,6 +56,12 @@ const userSchema = new mongoose.Schema({
   postCount: { type: Number, default: 0, min: 0 },
   savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
   bio: { type: String, default: '', maxlength: 1000 },
+  tagline: { type: String, default: '', maxlength: 80 },
+  location: { type: String, default: '', maxlength: 80 },
+  profileVisibility: {
+    about: { type: String, enum: ['public', 'friends', 'private'], default: 'public' },
+    activity: { type: String, enum: ['public', 'friends', 'private'], default: 'public' }
+  },
   bannerUrl: { type: String, default: '' },
   themeColor: { type: String, default: '#ff4713', match: /^#[0-9a-fA-F]{6}$/ },
   avatarFrame: { type: String, enum: ['none', 'spark', 'gold', 'violet', 'flame'], default: 'none' },

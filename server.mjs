@@ -30,10 +30,10 @@ import {
   validate, verifyRefreshToken
 } from './server/security.mjs';
 import {
-  acceptFriendRequest, canAccessPost, connectDatabase, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteComment, deletePost,
+  acceptFriendRequest, addCollectionPost, canAccessPost, connectDatabase, createCollection, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteCollection, deleteComment, deletePost,
   findUserByEmail, findUserByGoogleId, findUserById, getGuild, getPostForSpeech, getPublicProfile, getPublicPost, joinGuildByInvite, listComments, listFriends, listGuildAudit, listGuildMembers, listGuildMessages, listGuildPosts, listGuilds, listLeaderboard, listMessages,
-  deleteNotificationMute, listAnonymousPosts, listDrafts, listFeatureIdeas, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, searchCallout, setNotificationMute,
-  savePostSpeech, toggleGuildMembership, toggleSavedPost, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
+  deleteNotificationMute, followUser, listAnonymousPosts, listCollections, listDrafts, listFeatureIdeas, listFollowConnections, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, removeCollectionPost, reorderCollection, searchCallout, setNotificationMute,
+  savePostSpeech, toggleGuildMembership, toggleSavedPost, unfollowUser, updateCollection, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
 } from './server/repository.mjs';
 
 dotenv.config();
@@ -661,6 +661,39 @@ app.get('/api/leaderboard', async (req, res, next) => {
 });
 app.get('/api/users/:id', optionalAuth, async (req, res, next) => {
   try { const user = await getPublicProfile(req.params.id, req.userId); if (!user) return res.status(404).json({ error: 'User not found.' }); res.json({ user }); } catch (error) { next(error); }
+});
+app.post('/api/users/:id/follow', requireAuth, async (req, res, next) => {
+  try { const result = await followUser(req.userId, req.params.id); if (!result) return res.status(400).json({ error: 'This account cannot be followed.' }); res.status(201).json(result); } catch (error) { next(error); }
+});
+app.delete('/api/users/:id/follow', requireAuth, async (req, res, next) => {
+  try { res.json(await unfollowUser(req.userId, req.params.id)); } catch (error) { next(error); }
+});
+app.get('/api/users/:id/followers', optionalAuth, async (req, res, next) => {
+  try { res.json(await listFollowConnections(req.params.id, 'followers', req.query.page)); } catch (error) { next(error); }
+});
+app.get('/api/users/:id/following', optionalAuth, async (req, res, next) => {
+  try { res.json(await listFollowConnections(req.params.id, 'following', req.query.page)); } catch (error) { next(error); }
+});
+app.get('/api/users/:id/collections', optionalAuth, async (req, res, next) => {
+  try { res.json({ collections: await listCollections(req.params.id, req.userId) }); } catch (error) { next(error); }
+});
+app.post('/api/collections', requireAuth, validate(schemas.collection), async (req, res, next) => {
+  try { res.status(201).json({ collection: await createCollection(req.userId, req.body) }); } catch (error) { next(error); }
+});
+app.patch('/api/collections/:id', requireAuth, validate(schemas.collectionPatch), async (req, res, next) => {
+  try { const collection = await updateCollection(req.params.id, req.userId, req.body); if (!collection) return res.status(404).json({ error: 'Collection not found.' }); res.json({ collection }); } catch (error) { next(error); }
+});
+app.delete('/api/collections/:id', requireAuth, async (req, res, next) => {
+  try { if (!(await deleteCollection(req.params.id, req.userId))) return res.status(404).json({ error: 'Collection not found.' }); res.status(204).end(); } catch (error) { next(error); }
+});
+app.post('/api/collections/:id/posts', requireAuth, validate(schemas.collectionItem), async (req, res, next) => {
+  try { const collection = await addCollectionPost(req.params.id, req.userId, req.body.postId); if (!collection) return res.status(400).json({ error: 'This post cannot be added to the collection.' }); res.json({ collection }); } catch (error) { next(error); }
+});
+app.delete('/api/collections/:id/posts/:postId', requireAuth, async (req, res, next) => {
+  try { const collection = await removeCollectionPost(req.params.id, req.userId, req.params.postId); if (!collection) return res.status(404).json({ error: 'Collection not found.' }); res.json({ collection }); } catch (error) { next(error); }
+});
+app.patch('/api/collections/:id/order', requireAuth, validate(schemas.collectionOrder), async (req, res, next) => {
+  try { const collection = await reorderCollection(req.params.id, req.userId, req.body.postIds); if (!collection) return res.status(400).json({ error: 'Collection order is invalid.' }); res.json({ collection }); } catch (error) { next(error); }
 });
 app.get('/api/friends', requireAuth, async (req, res, next) => {
   try { res.json({ friendships: await listFriends(req.userId) }); } catch (error) { next(error); }

@@ -85,6 +85,12 @@ export const schemas = {
     displayName: plain(40).required(),
     handle: Joi.string().lowercase().pattern(/^@[a-z0-9_]{3,30}$/).required(),
     bio: plain(1000).allow(''),
+    tagline: plain(80).allow('').default(''),
+    location: plain(80).allow('').default(''),
+    profileVisibility: Joi.object({
+      about: Joi.string().valid('public', 'friends', 'private').default('public'),
+      activity: Joi.string().valid('public', 'friends', 'private').default('public')
+    }).default({ about: 'public', activity: 'public' }),
     bannerUrl: optionalBanner,
     avatarUrl: optionalBanner,
     themeColor: Joi.string().pattern(/^#[0-9a-fA-F]{6}$/).required(),
@@ -200,6 +206,19 @@ export const schemas = {
   }),
   guildMessage: Joi.object({ text: plain(2000).required() }),
   friend: Joi.object({ userId: recordId.required() }),
+  collection: Joi.object({
+    type: Joi.string().valid('saved', 'portfolio').required(),
+    title: plain(80).required(),
+    description: plain(240).allow('').default(''),
+    coverUrl: optionalBanner,
+    visibility: Joi.string().valid('public', 'friends', 'private').default('private')
+  }),
+  collectionPatch: Joi.object({
+    title: plain(80), description: plain(240).allow(''),
+    coverUrl: optionalBanner, visibility: Joi.string().valid('public', 'friends', 'private')
+  }).min(1),
+  collectionItem: Joi.object({ postId: recordId.required() }),
+  collectionOrder: Joi.object({ postIds: Joi.array().max(100).unique().items(recordId).required() }),
   message: Joi.object({ recipient: plain(254).required(), message: plain(2000).required() }),
   report: Joi.object({ reason: Joi.string().valid('spam', 'harassment', 'offensive', 'other').required(), details: plain(500).allow('') })
   ,
