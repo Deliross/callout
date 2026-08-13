@@ -23,17 +23,17 @@ a { color: inherit; text-decoration: none; }
 .svg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 .page-shell {
-  width: min(1780px, calc(100% - 24px));
-  min-height: calc(100vh - 24px);
-  margin: 12px auto;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
   display: grid;
   grid-template-columns: 260px minmax(600px, 1fr) 390px;
   grid-template-rows: 94px auto;
   background: rgba(255,255,255,.9);
-  border: 3px solid var(--ink);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
   overflow: clip;
-  box-shadow: 0 14px 45px rgba(28,23,12,.08);
+  box-shadow: none;
 }
 
 .topbar { grid-column: 1 / -1; display: grid; grid-template-columns: 260px minmax(400px, 1fr) 390px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.94); position: sticky; top: 0; z-index: 20; }
