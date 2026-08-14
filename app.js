@@ -2458,38 +2458,21 @@ function triggerBlobDownload(blob, filename) {
 }
 
 async function openPostDownload(post) {
-  const format = selectExportFormat(post); let backgroundMode = 'transparent'; let selectedType = 'overlay'; let exportCanvases = {};
-  showActionDialog(actionDialogShell('EXPORT TAKE', 'Choose your format', `<p class="dialog-copy">Four clean exports, each made for a different kind of post.</p><div class="export-format-grid" role="list" aria-label="Export formats"><button type="button" class="export-format-option active" data-export-type="overlay" role="listitem"><span class="export-format-icon">T</span><span><strong>TikTok overlay</strong><small>Transparent · 1080 × 1920</small></span><b>Best for video</b></button><button type="button" class="export-format-option" data-export-type="quote" role="listitem"><span class="export-format-icon">“</span><span><strong>Quote card</strong><small>Opinion-first social image</small></span></button><button type="button" class="export-format-option" data-export-type="votes" role="listitem"><span class="export-format-icon">%</span><span><strong>Live votes</strong><small>Based vs Hot Take result</small></span></button><button type="button" class="export-format-option" data-export-type="takes" role="listitem"><span class="export-format-icon">↳</span><span><strong>Top Takes</strong><small>Best replies in one image</small></span></button></div><div class="export-background-choice" id="exportBackgroundChoice" role="group" aria-label="Export background" hidden><button type="button" data-export-background="transparent" class="active">Transparent outside</button><button type="button" data-export-background="brand">Callout background</button></div><div class="export-selected-preview export-preview-loading transparent-preview" id="exportSelectedPreview"><p>Building preview...</p></div><div class="export-selected-meta" id="exportSelectedMeta"><strong>TikTok overlay</strong><span>Transparent PNG · centered upper-middle</span></div><button class="primary-action export-selected-download" type="button" id="downloadSelectedExport" disabled>Preparing image...</button>`));
+  const format = selectExportFormat(post); let backgroundMode = 'transparent'; let canvases = [];
+  showActionDialog(actionDialogShell('EXPORT TAKE', 'Ready for social', `<p class="dialog-copy">Download the clean Quote Card and Live Votes image together.</p><div class="export-auto-format"><strong>${format.label}</strong><span>${format.width} × ${format.height} · 2 images</span></div><div class="export-background-choice export-background-choice-three" role="group" aria-label="Export finish"><button type="button" data-export-background="transparent" class="active"><strong>No background</strong><small>Clean card</small></button><button type="button" data-export-background="brand"><strong>Callout background</strong><small>Ready to post</small></button><button type="button" data-export-background="glass"><strong>Glass overlay</strong><small>For video</small></button></div><div class="export-pair-preview export-preview-loading transparent-preview" id="exportPairPreview"><p>Building previews...</p></div><button class="primary-action export-pair-download" type="button" id="downloadExportPair" disabled>Preparing images...</button>`));
   try {
-    const takes = await loadExportTakes(post);
-    const assets = await loadExportAssets(post, takes);
+    const assets = await loadExportAssets(post);
     const renderPreview = () => {
-      exportCanvases = {
-        overlay: drawTikTokOverlayExport(post),
-        quote: drawQuoteExport(post, format, assets, backgroundMode),
-        votes: drawVoteExport(post, format, assets, backgroundMode),
-        takes: takes.length ? drawTakesExport(post, takes, format, assets, backgroundMode) : null
-      };
-      const preview = document.querySelector('#exportSelectedPreview'); if (!preview) return;
-      const canvas = exportCanvases[selectedType]; const isTransparent = selectedType === 'overlay' || backgroundMode === 'transparent';
-      preview.classList.remove('export-preview-loading'); preview.classList.toggle('transparent-preview', isTransparent); preview.innerHTML = '';
-      if (canvas) preview.append(canvas); else preview.innerHTML = '<p>This post needs at least one Take before Top Takes can be exported.</p>';
-      const labels = { overlay: ['TikTok overlay', 'Transparent PNG · 1080 × 1920 · centered upper-middle'], quote: ['Quote card', `${format.width} × ${format.height} · opinion-first card`], votes: ['Live votes', `${format.width} × ${format.height} · current voting result`], takes: ['Top Takes', takes.length ? `${format.width} × ${format.height} · ${takes.length} featured ${takes.length === 1 ? 'Take' : 'Takes'}` : 'No Takes available yet'] };
-      const meta = document.querySelector('#exportSelectedMeta'); if (meta) meta.innerHTML = `<strong>${labels[selectedType][0]}</strong><span>${labels[selectedType][1]}</span>`;
-      const download = document.querySelector('#downloadSelectedExport'); if (download) { download.disabled = !canvas; download.textContent = canvas ? `Download ${labels[selectedType][0]}` : 'No Takes to download'; }
-      const backgroundChoice = document.querySelector('#exportBackgroundChoice'); if (backgroundChoice) backgroundChoice.hidden = selectedType === 'overlay';
+      canvases = [drawQuoteExport(post, format, assets, backgroundMode), drawVoteExport(post, format, assets, backgroundMode)];
+      const preview = document.querySelector('#exportPairPreview'); if (!preview) return;
+      preview.classList.remove('export-preview-loading'); preview.classList.toggle('transparent-preview', backgroundMode !== 'brand'); preview.innerHTML = '';
+      [['Quote card', canvases[0]], ['Live votes', canvases[1]]].forEach(([label, canvas]) => { const item = document.createElement('figure'); item.append(canvas); item.insertAdjacentHTML('beforeend', `<figcaption>${label}</figcaption>`); preview.append(item); });
     };
     renderPreview();
-    document.querySelectorAll('[data-export-type]').forEach(option => option.addEventListener('click', () => { selectedType = option.dataset.exportType; document.querySelectorAll('[data-export-type]').forEach(button => button.classList.toggle('active', button === option)); renderPreview(); }));
     document.querySelectorAll('[data-export-background]').forEach(choice => choice.addEventListener('click', () => { backgroundMode = choice.dataset.exportBackground; document.querySelectorAll('[data-export-background]').forEach(button => button.classList.toggle('active', button === choice)); renderPreview(); }));
-    const download = document.querySelector('#downloadSelectedExport');
-    download.addEventListener('click', async () => {
-      const canvas = exportCanvases[selectedType]; if (!canvas) return;
-      download.disabled = true; download.textContent = 'Downloading...';
-      try { await downloadSelectedPostExport(post, selectedType, format, backgroundMode, canvas, takes.length); closeActionDialog(); showToast(`${selectedType === 'overlay' ? 'TikTok overlay' : selectedType === 'takes' ? 'Top Takes' : selectedType === 'votes' ? 'Live votes' : 'Quote card'} downloaded.`); }
-      catch (error) { download.disabled = false; download.textContent = 'Try download again'; showToast(error.message); }
-    });
-  } catch (error) { const preview = document.querySelector('#exportSelectedPreview'); if (preview) preview.innerHTML = '<p>Preview could not be generated.</p>'; showToast(error.message); }
+    const download = document.querySelector('#downloadExportPair'); download.disabled = false; download.textContent = 'Download both images';
+    download.addEventListener('click', async () => { download.disabled = true; download.textContent = 'Downloading...'; try { await downloadPostImages(post, format, backgroundMode, canvases); closeActionDialog(); showToast('Quote and vote images downloaded.'); } catch (error) { download.disabled = false; download.textContent = 'Try download again'; showToast(error.message); } });
+  } catch (error) { const preview = document.querySelector('#exportPairPreview'); if (preview) preview.innerHTML = '<p>Preview could not be generated.</p>'; showToast(error.message); }
 }
 
 function canvasWrappedLines(context, text, maxWidth) {
@@ -2569,7 +2552,18 @@ function drawExportBackground(context, width, height) {
   context.globalAlpha = 1;
 }
 
-function drawRoundedCard(context, x, y, width, height, radius, shadow) {
+function drawRoundedCard(context, x, y, width, height, radius, shadow, finish = 'solid') {
+  if (finish === 'glass') {
+    context.save();
+    context.fillStyle = 'rgba(5,7,10,.28)'; context.beginPath(); context.roundRect(x + 13, y + 16, width, height, radius); context.fill();
+    const glass = context.createLinearGradient(x, y, x + width, y + height);
+    glass.addColorStop(0, 'rgba(255,255,255,.52)'); glass.addColorStop(.45, 'rgba(238,241,244,.34)'); glass.addColorStop(1, 'rgba(190,196,202,.24)');
+    context.fillStyle = glass; context.strokeStyle = 'rgba(255,255,255,.92)'; context.lineWidth = 4; context.beginPath(); context.roundRect(x, y, width, height, radius); context.fill(); context.stroke();
+    context.strokeStyle = 'rgba(16,17,20,.42)'; context.lineWidth = 2; context.beginPath(); context.roundRect(x + 4, y + 4, width - 8, height - 8, Math.max(4, radius - 4)); context.stroke();
+    context.strokeStyle = 'rgba(255,255,255,.72)'; context.lineWidth = 3; context.beginPath(); context.moveTo(x + radius, y + 10); context.lineTo(x + width - radius, y + 10); context.stroke();
+    context.restore();
+    return;
+  }
   context.fillStyle = shadow; context.beginPath(); context.roundRect(x + 12, y + 14, width, height, radius); context.fill();
   context.fillStyle = '#fffdfb'; context.strokeStyle = '#101114'; context.lineWidth = 4; context.beginPath(); context.roundRect(x, y, width, height, radius); context.fill(); context.stroke();
 }
@@ -2637,55 +2631,6 @@ function drawFace(context, centerX, centerY, radius, mood, unit) {
   context.stroke();
 }
 
-function drawTikTokOverlayExport(post) {
-  const format = { key: 'overlay', label: 'TikTok overlay', width: 1080, height: 1920 };
-  const { canvas, context, width } = exportCanvas(format);
-  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
-  const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
-  const hot = 100 - based;
-  const centerX = width / 2;
-  const maxWidth = 900;
-  const maxTextHeight = 430;
-  const fitted = fitExportText(context, post.text || 'Untitled take', maxWidth, maxTextHeight, 76, 46, 1);
-  const resultGap = 42;
-  const resultLineHeight = 42;
-  const brandGap = 26;
-  const brandLineHeight = 28;
-  const groupHeight = fitted.lines.length * fitted.lineHeight + resultGap + resultLineHeight + brandGap + brandLineHeight;
-  let y = Math.max(300, 510 - groupHeight / 2) + fitted.lineHeight;
-
-  context.save();
-  context.textAlign = 'center';
-  context.textBaseline = 'alphabetic';
-  context.lineJoin = 'round';
-  context.miterLimit = 2;
-  context.font = fitted.font;
-  context.strokeStyle = '#050505';
-  context.fillStyle = '#ffffff';
-  context.lineWidth = 18;
-  fitted.lines.forEach(line => {
-    context.strokeText(line, centerX, y, maxWidth);
-    context.fillText(line, centerX, y, maxWidth);
-    y += fitted.lineHeight;
-  });
-
-  y += resultGap;
-  const verdict = `${based}% BASED · ${hot}% HOT`;
-  context.font = '900 36px Arial';
-  context.lineWidth = 11;
-  context.strokeText(verdict, centerX, y, maxWidth);
-  context.fillText(verdict, centerX, y, maxWidth);
-
-  y += brandGap + brandLineHeight;
-  context.font = '900 22px Arial';
-  context.lineWidth = 8;
-  context.globalAlpha = .82;
-  context.strokeText('CALLOUT', centerX, y, maxWidth);
-  context.fillText('CALLOUT', centerX, y, maxWidth);
-  context.restore();
-  return canvas;
-}
-
 function drawQuoteExport(post, format, assets, backgroundMode = 'brand') {
   const { canvas, context, width, height, unit } = exportCanvas(format); if (backgroundMode === 'brand') drawExportBackground(context, width, height);
   const side = Math.round(58 * unit); const cardWidth = width - side * 2; const innerPad = 42 * unit; const innerWidth = cardWidth - innerPad * 2;
@@ -2693,7 +2638,7 @@ function drawQuoteExport(post, format, assets, backgroundMode = 'brand') {
   const textLimit = Math.min(format.key === 'story' ? 620 : 450, height * .36) * unit;
   const fitted = fitExportText(context, post.text, innerWidth, textLimit, 58, 32, unit); const textHeight = fitted.lines.length * fitted.lineHeight;
   const cardHeight = Math.min(height - 150 * unit, Math.max(520 * unit, 42 * unit + 72 * unit + 42 * unit + textHeight + (mediaHeight ? 32 * unit + mediaHeight : 0) + 92 * unit));
-  const top = Math.round((height - cardHeight) / 2); drawRoundedCard(context, side, top, cardWidth, cardHeight, 42 * unit, '#101114');
+  const top = Math.round((height - cardHeight) / 2); drawRoundedCard(context, side, top, cardWidth, cardHeight, 42 * unit, '#101114', backgroundMode === 'glass' ? 'glass' : 'solid');
   const inner = side + innerPad; drawExportAuthor(context, post, inner, top + 38 * unit, unit, assets.avatar);
   let y = top + 155 * unit + fitted.lineHeight; context.fillStyle = '#101114'; context.font = fitted.font; fitted.lines.forEach(line => { context.fillText(line, inner, y); y += fitted.lineHeight; });
   if (mediaHeight) { y += 24 * unit; drawExportMedia(context, assets.media, inner, y, innerWidth, Math.min(mediaHeight, top + cardHeight - 102 * unit - y), unit); }
@@ -2706,7 +2651,7 @@ function drawVoteExport(post, format, assets, backgroundMode = 'brand') {
   const side = Math.round(56 * unit); const cardWidth = width - side * 2; const inner = side + 42 * unit;
   context.fillStyle = '#101114'; const fitted = fitExportText(context, post.text, cardWidth - 84 * unit, 230 * unit, 44, 28, unit); const textHeight = Math.min(4, fitted.lines.length) * fitted.lineHeight;
   const relativeVoteTop = 150 * unit + textHeight + 42 * unit; const cardHeight = Math.max(640 * unit, relativeVoteTop + 105 * unit + 70 * unit + 34 * unit + 118 * unit);
-  const top = Math.round((height - cardHeight) / 2); drawRoundedCard(context, side, top, cardWidth, cardHeight, 38 * unit, '#101114');
+  const top = Math.round((height - cardHeight) / 2); drawRoundedCard(context, side, top, cardWidth, cardHeight, 38 * unit, '#101114', backgroundMode === 'glass' ? 'glass' : 'solid');
   drawExportAuthor(context, post, inner, top + 35 * unit, unit, assets.avatar);
   let y = top + 150 * unit + fitted.lineHeight; context.font = fitted.font; context.fillStyle = '#101114';
   fitted.lines.slice(0, 4).forEach(line => { context.fillText(line, inner, y); y += fitted.lineHeight; });
@@ -2806,20 +2751,6 @@ async function downloadTakesImage(post, format, backgroundMode, canvas) {
   const safeId = String(post.id || 'take').replace(/[^a-zA-Z0-9_-]/g, '');
   await triggerCanvasDownload(canvas, `callout-${safeId}-${format.key}-${backgroundMode}-takes.png`);
   trackEvent('download_post_takes', { post: post.id, takes: Math.min(3, flattenPostComments(post.comments || []).length) });
-}
-
-async function downloadSelectedPostExport(post, type, format, backgroundMode, canvas, takeCount = 0) {
-  await document.fonts?.ready;
-  const safeId = String(post.id || 'take').replace(/[^a-zA-Z0-9_-]/g, '');
-  const names = {
-    overlay: `callout-${safeId}-tiktok-overlay.png`,
-    quote: `callout-${safeId}-${format.key}-${backgroundMode}-quote.png`,
-    votes: `callout-${safeId}-${format.key}-${backgroundMode}-votes.png`,
-    takes: `callout-${safeId}-${format.key}-${backgroundMode}-takes.png`
-  };
-  if (!names[type]) throw new Error('That export format is unavailable.');
-  await triggerCanvasDownload(canvas, names[type]);
-  trackEvent('download_post_export', { post: post.id, type, background: type === 'overlay' ? 'transparent' : backgroundMode, takes: type === 'takes' ? takeCount : undefined });
 }
 
 function openEditPost(post) {

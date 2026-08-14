@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('post export offers centered TikTok overlay, quote, vote and clean Takes images', async () => {
+test('post export stays simple with quote and vote images in three finishes', async () => {
   const app = await readFile(new URL('../app.js', import.meta.url), 'utf8');
   const exporter = app.slice(app.indexOf('async function openPostDownload'), app.indexOf('function openEditPost'));
   assert.match(exporter, /selectExportFormat/);
@@ -12,19 +12,17 @@ test('post export offers centered TikTok overlay, quote, vote and clean Takes im
   assert.doesNotMatch(exporter, /badgeX|#2296f3/);
   assert.match(exporter, /drawQuoteExport/);
   assert.match(exporter, /drawVoteExport/);
-  assert.match(exporter, /drawTakesExport/);
-  assert.match(exporter, /drawTikTokOverlayExport/);
-  assert.match(exporter, /loadExportTakes/);
   assert.match(exporter, /-quote\.png/);
   assert.match(exporter, /-votes\.png/);
-  assert.match(exporter, /-takes\.png/);
-  assert.match(exporter, /TikTok overlay/);
-  assert.match(exporter, /Top Takes/);
-  assert.match(exporter, /downloadSelectedPostExport/);
-  assert.match(exporter, /-tiktok-overlay\.png/);
-  assert.match(exporter, /textAlign = 'center'/);
-  assert.match(exporter, /strokeText/);
-  assert.match(exporter, /1080, height: 1920/);
+  assert.match(exporter, /No background/);
+  assert.match(exporter, /Callout background/);
+  assert.match(exporter, /Glass overlay/);
+  assert.match(exporter, /data-export-background="glass"/);
+  assert.match(exporter, /finish === 'glass'/);
+  assert.match(exporter, /rgba\(255,255,255,\.52\)/);
+  assert.match(exporter, /Download both images/);
+  assert.doesNotMatch(exporter, /Top Takes/);
+  assert.doesNotMatch(exporter, /TikTok overlay/);
   assert.match(exporter, /'#55df50', 'BASED', 'based'/);
   assert.match(exporter, /drawCompactVote\(inner, basedWidth, '#55df50', 'BASED', 'based'\)/);
   assert.match(exporter, /drawCompactVote\(hotButtonX, hotWidth, '#ff5431', 'HOT TAKE', 'hot'\)/);
