@@ -112,8 +112,6 @@ const state = {
   about: { sections: [], updates: [] },
   pinboard: { cycle: '', items: [], canManage: false },
   activeFeedTab: 'For You',
-  homeMode: 'feed',
-  loopMode: 'shorts',
   expandedPostState: ''
 };
 
@@ -642,7 +640,7 @@ function mapPost(post) {
     authorId: String(post.author?.id || post.author?._id || post.author || ''),
     authorHandle: post.author?.handle || '@member', authorName: post.author?.displayName || 'Callout member',
     authorAvatarUrl: post.author?.avatarUrl || '', authorAutomated: Boolean(post.author?.isAutomated), authorPersona: post.author?.automationPersona || '', text: String(post.content || ''), category: post.category, media: Array.isArray(post.media) ? post.media : [],
-    poll: post.poll || null, topics: post.topics || [], contentWarning: post.contentWarning || '', embedUrl: post.embedUrl || '', externalEmbed: post.externalEmbed || null, shortOverlay: post.shortOverlay || { enabled: false, style: 'callout', size: 'standard', position: 'top', showUsername: true, showResults: true, showActivity: false }, reactionSet: post.reactionSet || 'classic', visibility: post.visibility || 'public',
+    poll: post.poll || null, topics: post.topics || [], contentWarning: post.contentWarning || '', embedUrl: post.embedUrl || '', externalEmbed: post.externalEmbed || null, reactionSet: post.reactionSet || 'classic', visibility: post.visibility || 'public',
     alrightVotes: Number(post.alrightVotes || 0), cringeVotes: Number(post.cringeVotes || 0), impressions: Number(post.impressions || 0),
     userVote: post.userVote || null, emojiReactions: post.emojiReactions || {}, commentCount: Number(post.commentCount || 0), comments: Array.isArray(post.comments) ? post.comments : [],
     ttsAudio: Array.isArray(post.ttsAudio) ? post.ttsAudio : [], viralVideo: post.viralVideo || { milestones: [100, 500, 1000], reached: [], next: null },
@@ -1020,76 +1018,7 @@ function postEmojiPicker(post) {
   </div>`;
 }
 
-function mediaVideo(post) {
-  return (post.media || []).find(item => item.type === 'video') || null;
-}
-
-function isShortVideo(item) {
-  return Boolean(item?.type === 'video' && Number(item.duration || 0) <= 60 && Number(item.aspectRatio || 1) <= 1.1);
-}
-
-function loopVoteMarkup(post, location = 'short') {
-  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
-  const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
-  return `<div class="loop-vote-dock loop-vote-${location}">
-    <button type="button" data-vote="alright" class="loop-based ${post.userVote === 'alright' ? 'selected' : ''}">${calloutGlyph('based')}<span><strong>BASED</strong><b>${based}%</b></span></button>
-    <div class="loop-split" style="--based:${based}%" aria-label="${based}% Based and ${100 - based}% Hot Take"><i></i></div>
-    <button type="button" data-vote="cringe" class="loop-hot ${post.userVote === 'cringe' ? 'selected' : ''}"><span><strong>HOT TAKE</strong><b>${100 - based}%</b></span>${calloutGlyph('cringe')}</button>
-  </div>`;
-}
-
-function loopCreatorOverlay(post) {
-  const options = { enabled: false, style: 'callout', size: 'standard', position: 'top', showUsername: true, showResults: true, showActivity: false, ...(post.shortOverlay || {}) };
-  if (!options.enabled) return '';
-  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
-  const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
-  return `<div class="loop-creator-overlay overlay-${escapeHtml(options.style)} overlay-${escapeHtml(options.size)} overlay-position-${escapeHtml(options.position)}">
-    ${options.showUsername ? `<div class="overlay-author">${postAvatarMarkup(post)}<span><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><small>${escapeHtml(post.category)}</small></span></div>` : ''}
-    <p>${formatPostContent(post.text || 'Untitled Take')}</p>
-    ${options.showResults ? `<div class="overlay-result"><span><b>${based}%</b> BASED</span><i style="--based:${based}%"></i><span><b>${100 - based}%</b> HOT</span></div>` : ''}
-    ${options.showActivity ? `<small class="overlay-activity">${Number(post.commentCount || 0)} people added a Take</small>` : ''}
-  </div>`;
-}
-
-function loopShortCard(post) {
-  const video = mediaVideo(post);
-  return `<article class="loop-short-card" data-post-id="${post.id}">
-    <div class="loop-short-video">
-      <video src="${escapeHtml(video.url)}" playsinline loop muted controls preload="metadata" aria-label="Short video by ${escapeHtml(post.authorHandle || 'Callout member')}"></video>
-      ${loopCreatorOverlay(post)}
-      <div class="loop-short-identity">${postAvatarMarkup(post)}<span><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><small>${escapeHtml(post.category)} · ${timeLabel(post.createdAt)}</small></span></div>
-      <div class="loop-action-rail"><button type="button" data-open-take="${post.id}" aria-label="Open ${Number(post.commentCount || 0)} Takes"><span>▣</span><b>${Number(post.commentCount || 0)}</b></button><button type="button" data-save-post="${post.id}" aria-label="Save"><span>◇</span><b>Save</b></button><button type="button" data-loop-share="${post.id}" aria-label="Share"><span>↗</span><b>Share</b></button></div>
-    </div>
-    ${loopVoteMarkup(post, 'short')}
-  </article>`;
-}
-
-function loopWatchCard(post) {
-  const video = mediaVideo(post);
-  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
-  return `<article class="loop-watch-card" data-post-id="${post.id}">
-    <header>${postAvatarMarkup(post)}<div><span><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><i>${escapeHtml(post.category)}</i><small>${timeLabel(post.createdAt)}</small></span><h2>${formatPostContent(post.text || 'Watch this Take')}</h2></div><button type="button" data-post-menu="${post.id}" aria-label="Post options">•••</button></header>
-    <div class="loop-watch-player"><video src="${escapeHtml(video.url)}" controls playsinline preload="metadata"></video><span>CALLOUT WATCH</span></div>
-    ${loopVoteMarkup(post, 'watch')}
-    <footer><span>${total} votes · ${Number(post.commentCount || 0)} Takes</span><div><button type="button" data-save-post="${post.id}">Save</button><button type="button" data-loop-share="${post.id}">Share</button><button type="button" data-open-take="${post.id}">Open Take →</button></div></footer>
-  </article>`;
-}
-
-function loopView() {
-  const unique = new Map([...state.posts, ...state.trendingPosts, ...state.anonymousPosts].map(post => [String(post.id), post]));
-  const videos = [...unique.values()].filter(post => mediaVideo(post) && (sessionUser || !post.authorAutomated));
-  const shorts = videos.filter(post => isShortVideo(mediaVideo(post)));
-  const watch = videos.filter(post => !isShortVideo(mediaVideo(post)));
-  const selected = state.loopMode === 'watch' ? watch : shorts;
-  const content = selected.length
-    ? state.loopMode === 'watch' ? `<section class="loop-watch-list">${selected.map(loopWatchCard).join('')}</section>` : `<section class="loop-short-stream">${selected.map(loopShortCard).join('')}</section>`
-    : emptyState('▶', state.loopMode === 'watch' ? 'No wide videos yet' : 'No short videos yet', state.loopMode === 'watch' ? 'Landscape video Takes will appear here in a calmer, long-form layout.' : 'Vertical and square video Takes will appear here as the Loop grows.', '<button class="primary-action" type="button" data-open-composer>Post a video Take</button>');
-  return `<section class="loop-shell"><header class="loop-header"><div><span class="section-kicker">CALLOUT LOOP</span><h1>Watch the argument.</h1></div><nav aria-label="Loop format"><button class="${state.loopMode === 'shorts' ? 'active' : ''}" type="button" data-loop-mode="shorts">Shorts <b>${shorts.length}</b></button><button class="${state.loopMode === 'watch' ? 'active' : ''}" type="button" data-loop-mode="watch">Watch <b>${watch.length}</b></button></nav></header>${content}</section>`;
-}
-
 function homeView() {
-  const homeSwitch = `<nav class="home-mode-switch" aria-label="Home experience"><button class="${state.homeMode === 'feed' ? 'active' : ''}" type="button" data-home-mode="feed"><span>▤</span><b>Feed</b><small>Read every Take</small></button><button class="${state.homeMode === 'loop' ? 'active' : ''}" type="button" data-home-mode="loop"><span>▶</span><b>Loop</b><small>Watch video Takes</small></button></nav>`;
-  if (state.homeMode === 'loop') return `${homeSwitch}${loopView()}`;
   const rawSource = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
   const source = sessionUser ? rawSource : rawSource.filter(post => !post.authorAutomated);
   const guestDiscovery = `<section class="guest-discovery"><span class="section-kicker">WELCOME TO CALLOUT</span><h2>Original discussions are building here.</h2><p>Callout is an independent platform for publishing a focused opinion, voting Based or Hot Take, and explaining the result through public Takes. Automated accounts are excluded from the logged-out public feed so the discussions shown here represent real members.</p><div><a href="/learn">Browse the Learning Centre</a><a href="/how-callout-works">See how Callout works</a><a href="#auth" data-route="auth">Create an account</a></div></section>`;
@@ -1101,7 +1030,7 @@ function homeView() {
     ? emptyState('✦', 'No takes to show yet', 'Your feed is ready for real community posts. Create the first take to see voting come alive.', '<button class="primary-action" type="button" data-open-composer>Post your first take</button>')
     : guestDiscovery;
 
-  return `${adBanner('top-leaderboard')}${homeSwitch}
+  return `${adBanner('top-leaderboard')}
     <div class="feed-tabs" role="tablist" aria-label="Feed views">
       ${['For You','Following','Anonymous','Trending'].map(label => `<button class="tab ${state.activeFeedTab === label ? 'active' : ''}" type="button" data-feed-tab="${label}">${label}</button>`).join('')}
     </div>
@@ -1805,20 +1734,6 @@ function prepareBattleHostForm() {
 function bindViewInteractions(route) {
   bindPostInteractions();
   prepareBattleHostForm();
-  document.querySelectorAll('[data-home-mode]').forEach(button => button.addEventListener('click', () => { state.homeMode = button.dataset.homeMode; renderRoute(); }));
-  document.querySelectorAll('[data-loop-mode]').forEach(button => button.addEventListener('click', () => { state.loopMode = button.dataset.loopMode; renderRoute(); }));
-  document.querySelectorAll('[data-loop-share]').forEach(button => button.addEventListener('click', async () => {
-    const url = `${location.origin}${location.pathname}#take/${encodeURIComponent(button.dataset.loopShare)}`;
-    try { await navigator.clipboard.writeText(url); showToast('Link copied!'); } catch { showToast('Copy this link: ' + url); }
-  }));
-  if (route === 'home' && state.homeMode === 'loop' && state.loopMode === 'shorts' && 'IntersectionObserver' in window) {
-    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
-      const video = entry.target.querySelector('video');
-      if (!video) return;
-      if (entry.isIntersecting && entry.intersectionRatio >= .7) video.play().catch(() => {}); else video.pause();
-    }), { root: document.querySelector('.loop-short-stream'), threshold: [.25, .7] });
-    document.querySelectorAll('.loop-short-card').forEach(card => observer.observe(card));
-  }
   document.querySelectorAll('[data-admin-section]').forEach(button => button.addEventListener('click', () => navigate(`admin/${button.dataset.adminSection}`)));
   document.querySelectorAll('.admin-console-view [data-route-button]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.routeButton)));
   document.querySelectorAll('[data-post-state]').forEach(button => button.addEventListener('click', () => {
@@ -3222,8 +3137,8 @@ function videoMetadata(file) {
 async function prepareVideo(file) {
   if (file.size > 8 * 1024 * 1024) throw new Error('Short videos must be 8 MB or smaller.');
   const meta = await videoMetadata(file);
-  if (!Number.isFinite(meta.duration) || meta.duration > 120) throw new Error('Videos must be 120 seconds or shorter.');
-  if (meta.aspectRatio < .5 || meta.aspectRatio > 1.9) throw new Error('Use vertical, square, or widescreen video.');
+  if (!Number.isFinite(meta.duration) || meta.duration > 25) throw new Error('Videos must be 25 seconds or shorter.');
+  if (meta.aspectRatio < .95 || meta.aspectRatio > 1.05) throw new Error('Videos must use a square 1:1 aspect ratio.');
   return { type: 'video', url: await fileToDataUrl(file), alt: file.name, duration: Math.round(meta.duration * 10) / 10, aspectRatio: meta.aspectRatio };
 }
 
@@ -3292,31 +3207,6 @@ function updateComposerCharacterCount(length = document.querySelector('#takeText
   counter.classList.toggle('at-limit', length >= 2000);
 }
 
-function composerOverlayOptions() {
-  const shortVideo = pendingMedia.find(isShortVideo);
-  return {
-    enabled: Boolean(shortVideo && document.querySelector('#shortOverlayEnabled')?.checked),
-    style: document.querySelector('[data-overlay-choice="style"] .active')?.dataset.value || 'callout',
-    size: document.querySelector('[data-overlay-choice="size"] .active')?.dataset.value || 'standard',
-    position: document.querySelector('[data-overlay-choice="position"] .active')?.dataset.value || 'top',
-    showUsername: Boolean(document.querySelector('#shortOverlayUsername')?.checked),
-    showResults: Boolean(document.querySelector('#shortOverlayResults')?.checked),
-    showActivity: Boolean(document.querySelector('#shortOverlayActivity')?.checked)
-  };
-}
-
-function composerOverlayMarkup(text, category, anonymous) {
-  const options = composerOverlayOptions();
-  if (!options.enabled) return '';
-  const profile = sessionUser ? state.profile : defaultState.profile;
-  return `<div class="composer-video-overlay overlay-${escapeHtml(options.style)} overlay-${escapeHtml(options.size)} overlay-position-${escapeHtml(options.position)}">
-    ${options.showUsername ? `<small>${escapeHtml(anonymous ? 'Anonymous' : profile.handle || '@member')} · ${escapeHtml(category)}</small>` : ''}
-    <strong>${escapeHtml(text || 'Your Take appears here')}</strong>
-    ${options.showResults ? '<div><span><b>50%</b> BASED</span><i></i><span><b>50%</b> HOT</span></div>' : ''}
-    ${options.showActivity ? '<em>0 people added a Take</em>' : ''}
-  </div>`;
-}
-
 function updateComposerPreview() {
   const text = document.querySelector('#takeText')?.value.trim() || '';
   const category = document.querySelector('#takeCategory')?.value || 'Movies';
@@ -3335,12 +3225,7 @@ function updateComposerPreview() {
   const media = document.querySelector('#previewMedia');
   media.hidden = pendingMedia.length === 0;
   media.className = `preview-media preview-media-${Math.min(4, pendingMedia.length)}`;
-  media.innerHTML = pendingMedia.slice(0, 4).map(item => item.type === 'video' ? `<span class="preview-video-shell ${isShortVideo(item) ? 'is-short-video' : 'is-wide-video'}"><video src="${escapeHtml(item.url)}" muted controls playsinline></video>${isShortVideo(item) ? composerOverlayMarkup(text, category, anonymous) : ''}</span>` : `<img src="${escapeHtml(item.url)}" alt="" />`).join('');
-  const overlayControls = document.querySelector('#shortOverlayControls');
-  const hasShortVideo = pendingMedia.some(isShortVideo);
-  overlayControls.hidden = !hasShortVideo;
-  overlayControls.classList.toggle('is-disabled', !document.querySelector('#shortOverlayEnabled')?.checked);
-  document.querySelector('#shortOverlayState').textContent = document.querySelector('#shortOverlayEnabled')?.checked ? 'On' : 'Off';
+  media.innerHTML = pendingMedia.slice(0, 4).map(item => item.type === 'video' ? `<video src="${escapeHtml(item.url)}" muted></video>` : `<img src="${escapeHtml(item.url)}" alt="" />`).join('');
   const external = document.querySelector('#previewExternalEmbed');
   external.hidden = !pendingExternalEmbed;
   external.innerHTML = pendingExternalEmbed ? externalEmbedMarkup(pendingExternalEmbed, true) : '';
@@ -3436,12 +3321,6 @@ document.querySelector('#takeText').addEventListener('input', event => { updateC
 document.querySelector('#takeCategory').addEventListener('change', updateComposerPreview);
 document.querySelector('#takeAudience').addEventListener('change', updateComposerPreview);
 document.querySelector('#takeAnonymous').addEventListener('change', updateComposerPreview);
-document.querySelector('#shortOverlayEnabled').addEventListener('change', updateComposerPreview);
-document.querySelectorAll('#shortOverlayControls input[type="checkbox"]').forEach(input => input.addEventListener('change', updateComposerPreview));
-document.querySelectorAll('[data-overlay-choice] button').forEach(button => button.addEventListener('click', () => {
-  button.closest('[data-overlay-choice]').querySelectorAll('button').forEach(item => item.classList.toggle('active', item === button));
-  updateComposerPreview();
-}));
 document.querySelectorAll('[data-format]').forEach(button => button.addEventListener('click', () => {
   const input = document.querySelector('#takeText');
   const wrappers = { bold: ['**', '**'], italic: ['*', '*'], spoiler: ['||', '||'] };
@@ -3470,7 +3349,6 @@ async function submitComposer(draft = false) {
   const payload = {
     clientRequestId: composerRequestId || (composerRequestId = crypto.randomUUID()), content: text, category, media, draft, poll, contentType: poll ? 'poll' : media[0]?.type || 'text',
     visibility: document.querySelector('#takeAudience').value,
-    shortOverlay: composerOverlayOptions(),
     anonymous: Boolean(document.querySelector('#takeAnonymous')?.checked),
     topic: document.querySelector('#takeLiveTopic')?.value || null,
     topics: document.querySelector('#takeTopics').value.split(',').map(value => sanitizeInput(value)).filter(Boolean).slice(0, 5),

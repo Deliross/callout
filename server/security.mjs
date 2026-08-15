@@ -33,13 +33,13 @@ const mediaItem = Joi.object({
   type: Joi.string().valid('image', 'video', 'gif').required(),
   url: mediaUrl.required(),
   alt: plain(120).allow(''),
-  duration: Joi.number().min(0).max(120).default(0),
+  duration: Joi.number().min(0).max(25).default(0),
   aspectRatio: Joi.number().min(0.1).max(10).default(1)
 });
 const mediaCollection = Joi.array().max(5).items(mediaItem).custom((items, helpers) => {
   if (!items.length) return items;
   const videos = items.filter(item => item.type === 'video');
-  if (videos.some(item => item.aspectRatio < 0.5 || item.aspectRatio > 1.9)) return helpers.message({ custom: 'Videos must use a vertical, square, or widescreen aspect ratio.' });
+  if (videos.some(item => item.aspectRatio < 0.95 || item.aspectRatio > 1.05)) return helpers.message({ custom: 'Short videos must use a square 1:1 aspect ratio.' });
   return items;
 }, 'media layout validation');
 const externalEmbed = Joi.object({
@@ -140,15 +140,6 @@ export const schemas = {
     reactionSet: Joi.string().valid('classic', 'support', 'spicy').default('classic'),
     embedUrl: Joi.string().uri({ scheme: ['https'] }).max(2048).allow('').default(''),
     externalEmbed: externalEmbed.allow(null).default(null),
-    shortOverlay: Joi.object({
-      enabled: Joi.boolean().default(false),
-      style: Joi.string().valid('callout', 'glass', 'minimal').default('callout'),
-      size: Joi.string().valid('compact', 'standard', 'large').default('standard'),
-      position: Joi.string().valid('top', 'center', 'bottom').default('top'),
-      showUsername: Joi.boolean().default(true),
-      showResults: Joi.boolean().default(true),
-      showActivity: Joi.boolean().default(false)
-    }).default({ enabled: false, style: 'callout', size: 'standard', position: 'top', showUsername: true, showResults: true, showActivity: false }),
     poll: Joi.object({
       question: plain(240).required(),
       options: Joi.array().min(2).max(6).items(Joi.object({ text: plain(100).required() })).required(),
