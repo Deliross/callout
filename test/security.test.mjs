@@ -21,14 +21,17 @@ test('comment validation supports MongoDB and local fallback record ids', () => 
   assert.equal(schemas.comment.validate({ postId: '507f1f77bcf86cd799439011', parent: null, text: 'GIF Take', gifUrl: 'data:image/gif;base64,AA==' }).error, undefined);
 });
 
-test('media validation accepts five mixed attachments and enforces short video rules', () => {
+test('media validation accepts short and wide Loop video while enforcing upload limits', () => {
   const image = { type: 'image', url: 'data:image/webp;base64,AA==', alt: 'image', duration: 0, aspectRatio: 1.8 };
   assert.equal(schemas.post.validate({ content: 'Image take', category: 'Life', media: [image, image] }).error, undefined);
   assert.equal(schemas.post.validate({ content: 'Flexible layout', category: 'Life', media: [image, image, image, image, image] }).error, undefined);
   assert.ok(schemas.post.validate({ content: 'Too many', category: 'Life', media: [image, image, image, image, image, image] }).error);
   assert.equal(schemas.post.validate({ content: 'Video take', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 25, aspectRatio: 1 }] }).error, undefined);
-  assert.ok(schemas.post.validate({ content: 'Long video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 26, aspectRatio: 1 }] }).error);
-  assert.ok(schemas.post.validate({ content: 'Wide video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 10, aspectRatio: 1.8 }] }).error);
+  assert.equal(schemas.post.validate({ content: 'Wide video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 90, aspectRatio: 1.8 }] }).error, undefined);
+  assert.ok(schemas.post.validate({ content: 'Too long', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 121, aspectRatio: 1 }] }).error);
+  assert.ok(schemas.post.validate({ content: 'Too wide', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 10, aspectRatio: 2 }] }).error);
+  const overlay = { enabled: true, style: 'glass', size: 'standard', position: 'top', showUsername: true, showResults: true, showActivity: false };
+  assert.equal(schemas.post.validate({ content: 'Overlay take', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 20, aspectRatio: .56 }], shortOverlay: overlay }).error, undefined);
 });
 
 test('post text rejects hashtags and links while GIF attachment links stay valid', () => {

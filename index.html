@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260813-edge-to-edge" />
+    <link rel="stylesheet" href="styles.css?v=20260815-loop" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -140,7 +140,7 @@
             <textarea id="takeText" maxlength="2000" placeholder="Say something worth judging..."></textarea>
             <div class="composer-meta"><label><span>Category</span><select id="takeCategory" aria-label="Category"><option>Movies</option><option>Music</option><option>Entertainment</option><option>Games</option><option>Life</option></select></label><span id="charCount" aria-live="polite">0 / 2000</span></div>
             <section class="composer-drop-zone" id="composerDropZone" tabindex="0" aria-label="Drop images, GIFs, or short videos here">
-              <div class="drop-zone-copy"><span class="drop-zone-icon" aria-hidden="true">▧</span><strong>Drop media here</strong><span>Images, GIFs, or square video</span></div>
+              <div class="drop-zone-copy"><span class="drop-zone-icon" aria-hidden="true">▧</span><strong>Drop media here</strong><span>Images, GIFs, short vertical video, or wide video</span></div>
               <div class="composer-tool-groups">
                 <div class="composer-media-actions"><span class="tool-group-label">Media</span><div><label class="media-picker" for="takeMedia">▧ Add media<input id="takeMedia" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" multiple /></label><button type="button" id="toggleExternalAttach">↗ Attach post</button><button type="button" id="addGifUrl">GIF link</button></div></div>
                 <div class="composer-insert-actions"><span class="tool-group-label">Insert</span><div class="emoji-tray" id="postEmojiTray"><button type="button" aria-label="Insert fire">🔥</button><button type="button" aria-label="Insert laughing">😂</button><button type="button" aria-label="Insert crying">😭</button><button type="button" aria-label="Insert skull">💀</button><button type="button" aria-label="Insert handshake">🤝</button><button type="button" aria-label="Insert eyes">👀</button></div></div>
@@ -151,10 +151,18 @@
             <input id="gifUrlInput" type="url" inputmode="url" placeholder="Paste a direct HTTPS GIF URL" hidden />
             <section class="poll-builder" id="pollBuilder" hidden><label>Poll question<input id="pollQuestion" maxlength="240" /></label><div id="pollOptions"><input maxlength="100" placeholder="Option 1" /><input maxlength="100" placeholder="Option 2" /></div><button type="button" id="addPollOption">+ Add option</button></section>
             <div class="composer-options"><label>Live Topic<select id="takeLiveTopic"><option value="">None</option></select></label><label>Topics<input id="takeTopics" maxlength="120" placeholder="movies, hot takes" /></label><label>Content warning<input id="takeWarning" maxlength="160" placeholder="Optional" /></label><label>Schedule<input id="takeSchedule" type="datetime-local" /></label><label>Reactions<select id="takeReactionSet"><option value="classic">Classic</option><option value="support">Supportive</option><option value="spicy">Spicy</option></select></label></div>
-            <p class="media-rules">Up to 5 images, square videos, or GIFs. Videos: maximum 25 seconds and 8 MB. Links belong in the embed field, not post text.</p>
+            <p class="media-rules">Up to 5 media items. Videos: maximum 120 seconds and 8 MB. Text overlays are offered only for vertical or square videos up to 60 seconds.</p>
             <input id="takeEmbed" type="hidden" />
           </section>
           <aside class="composer-preview-column">
+            <section class="short-overlay-controls" id="shortOverlayControls" hidden>
+              <header><div><span class="section-kicker">SHORT VIDEO ONLY</span><strong>Text overlay</strong></div><label class="overlay-master-toggle"><input id="shortOverlayEnabled" type="checkbox" checked /><span aria-hidden="true"><i></i></span><b id="shortOverlayState">On</b></label></header>
+              <p>Place your Take directly over vertical or square video. This never appears on images or landscape video.</p>
+              <fieldset><legend>Style</legend><div class="overlay-choice-row" data-overlay-choice="style"><button class="active" type="button" data-value="callout">Callout</button><button type="button" data-value="glass">Glass</button><button type="button" data-value="minimal">Minimal</button></div></fieldset>
+              <fieldset><legend>Size</legend><div class="overlay-choice-row" data-overlay-choice="size"><button type="button" data-value="compact">Compact</button><button class="active" type="button" data-value="standard">Standard</button><button type="button" data-value="large">Large</button></div></fieldset>
+              <fieldset><legend>Position</legend><div class="overlay-choice-row" data-overlay-choice="position"><button class="active" type="button" data-value="top">Top</button><button type="button" data-value="center">Center</button><button type="button" data-value="bottom">Bottom</button></div></fieldset>
+              <div class="overlay-detail-options"><label><input id="shortOverlayUsername" type="checkbox" checked /> Username</label><label><input id="shortOverlayResults" type="checkbox" checked /> Live result</label><label><input id="shortOverlayActivity" type="checkbox" /> Takes count</label></div>
+            </section>
             <section class="composer-live-preview" aria-label="Live post preview">
               <header><strong>LIVE PREVIEW</strong><div class="composer-identity-controls"><label class="preview-audience"><span class="sr-only">Audience</span><select id="takeAudience" aria-label="Audience"><option value="public">Public</option><option value="friends">Friends</option></select></label><label class="anonymous-compose-toggle"><input id="takeAnonymous" type="checkbox" /><span class="anonymous-toggle-track" aria-hidden="true"><i></i></span><b>Anonymous</b></label></div></header>
               <article><div class="preview-avatar" id="previewAvatar">C</div><div><p><strong id="previewName">Callout member</strong><span class="preview-anon-tag" id="previewAnonTag" hidden>ANON</span><small id="previewCategory">Movies · now</small></p><div class="preview-content" id="previewContent">Your take will appear here as you type.</div><div class="preview-media" id="previewMedia" hidden></div><div id="previewExternalEmbed" hidden></div></div></article>
@@ -188,6 +196,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260801-composer"></script>
+    <script src="app.js?v=20260815-loop"></script>
   </body>
 </html>

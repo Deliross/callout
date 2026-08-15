@@ -4,7 +4,7 @@ const mediaSchema = new mongoose.Schema({
   type: { type: String, enum: ['image', 'video', 'gif'], required: true },
   url: { type: String, required: true },
   alt: { type: String, default: '', maxlength: 120 },
-  duration: { type: Number, default: 0, min: 0, max: 25 },
+  duration: { type: Number, default: 0, min: 0, max: 120 },
   aspectRatio: { type: Number, default: 1, min: 0.1, max: 10 }
 }, { _id: false });
 
@@ -65,6 +65,15 @@ const postSchema = new mongoose.Schema({
   reactionSet: { type: String, enum: ['classic', 'support', 'spicy'], default: 'classic' },
   embedUrl: { type: String, default: '', maxlength: 2048 },
   externalEmbed: { type: externalEmbedSchema, default: null },
+  shortOverlay: {
+    enabled: { type: Boolean, default: false },
+    style: { type: String, enum: ['callout', 'glass', 'minimal'], default: 'callout' },
+    size: { type: String, enum: ['compact', 'standard', 'large'], default: 'standard' },
+    position: { type: String, enum: ['top', 'center', 'bottom'], default: 'top' },
+    showUsername: { type: Boolean, default: true },
+    showResults: { type: Boolean, default: true },
+    showActivity: { type: Boolean, default: false }
+  },
   ttsAudio: { type: [ttsAudioSchema], default: [] },
   viralVideoMilestones: { type: [Number], default: [] },
   poll: {
