@@ -1025,7 +1025,12 @@ function mediaVideo(post) {
 }
 
 function isShortVideo(item) {
-  return Boolean(item?.type === 'video' && Number(item.duration || 0) <= 60 && Number(item.aspectRatio || 1) <= 1.1);
+  if (item?.type !== 'video') return false;
+  const duration = Number(item.duration || 0);
+  // Short form is a publishing format, not an orientation. Landscape clips can
+  // still be Shorts/Reels, while older records without duration metadata fall
+  // back to their portrait/square shape.
+  return duration > 0 ? duration <= 60 : Number(item.aspectRatio || 1) <= 1.1;
 }
 
 function loopVoteMarkup(post, location = 'short') {
@@ -3335,7 +3340,7 @@ function updateComposerPreview() {
   const media = document.querySelector('#previewMedia');
   media.hidden = pendingMedia.length === 0;
   media.className = `preview-media preview-media-${Math.min(4, pendingMedia.length)}`;
-  media.innerHTML = pendingMedia.slice(0, 4).map(item => item.type === 'video' ? `<span class="preview-video-shell ${isShortVideo(item) ? 'is-short-video' : 'is-wide-video'}"><video src="${escapeHtml(item.url)}" muted controls playsinline></video>${isShortVideo(item) ? composerOverlayMarkup(text, category, anonymous) : ''}</span>` : `<img src="${escapeHtml(item.url)}" alt="" />`).join('');
+  media.innerHTML = pendingMedia.slice(0, 4).map(item => item.type === 'video' ? `<span class="preview-video-shell ${isShortVideo(item) ? 'is-short-video' : 'is-wide-video'} ${Number(item.aspectRatio || 1) > 1.1 ? 'is-landscape-source' : ''}"><video src="${escapeHtml(item.url)}" muted controls playsinline></video>${isShortVideo(item) ? composerOverlayMarkup(text, category, anonymous) : ''}</span>` : `<img src="${escapeHtml(item.url)}" alt="" />`).join('');
   const overlayControls = document.querySelector('#shortOverlayControls');
   const hasShortVideo = pendingMedia.some(isShortVideo);
   overlayControls.hidden = !hasShortVideo;
