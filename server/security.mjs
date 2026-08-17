@@ -219,6 +219,19 @@ export const schemas = {
   }).min(1),
   collectionItem: Joi.object({ postId: recordId.required() }),
   collectionOrder: Joi.object({ postIds: Joi.array().max(100).unique().items(recordId).required() }),
+  savedBoard: Joi.object({
+    title: plain(80).required(), description: plain(240).allow('').default(''),
+    color: Joi.string().valid('green', 'orange', 'yellow', 'blue', 'purple', 'red', 'teal', 'graphite').default('graphite'),
+    icon: Joi.string().valid('folder', 'lightbulb', 'smile', 'clapperboard', 'bookmark', 'gamepad', 'music', 'flame').default('folder'),
+    visibility: Joi.string().valid('public', 'private').default('private')
+  }),
+  savedBoardPatch: Joi.object({
+    title: plain(80), description: plain(240).allow(''),
+    color: Joi.string().valid('green', 'orange', 'yellow', 'blue', 'purple', 'red', 'teal', 'graphite'),
+    icon: Joi.string().valid('folder', 'lightbulb', 'smile', 'clapperboard', 'bookmark', 'gamepad', 'music', 'flame'),
+    visibility: Joi.string().valid('public', 'private')
+  }).min(1),
+  savedBoardOrder: Joi.object({ boardIds: Joi.array().max(20).unique().items(recordId).required() }),
   message: Joi.object({ recipient: plain(254).required(), message: plain(2000).required() }),
   report: Joi.object({ reason: Joi.string().valid('spam', 'harassment', 'offensive', 'other').required(), details: plain(500).allow('') })
   ,

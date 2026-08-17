@@ -39,6 +39,11 @@ const memoryFollows = [];
 const memoryBadgeUnlocks = [];
 const memoryProfileActivity = [];
 const memoryCollections = new Map();
+const DEFAULT_SAVED_BOARDS = Object.freeze([
+  { title: 'Content Ideas', description: 'Inspiration worth returning to.', color: 'green', icon: 'lightbulb', position: 0 },
+  { title: 'Funniest', description: 'Takes that made you laugh.', color: 'orange', icon: 'smile', position: 1 },
+  { title: 'Movies', description: 'Film and screen opinions.', color: 'blue', icon: 'clapperboard', position: 2 }
+]);
 const VIRAL_VIDEO_MILESTONES = [100, 500, 1000];
 const POST_REACTION_KEYS = ['spark', 'purple_smile', 'based_crown', 'heat', 'micdrop', 'sideeye', 'brainzap', 'popcorn', 'gold_star', 'red_flag', 'diamond', 'ghosted', 'clown', 'tiny_fire', 'skull', 'laugh', 'question', 'loud', 'rare', 'callout'];
 export const HEAT_REWARDS = Object.freeze({ publishPost: 10, addTake: 4, firstReaction: 1 });
@@ -106,7 +111,7 @@ const normalize = document => {
 export function publicUser(user) {
   const value = normalize(user);
   if (!value) return null;
-  const { password, refreshTokenHash, refreshTokenHashes, passwordResetHash, passwordResetExpiresAt, ...safe } = value;
+  const { password, refreshTokenHash, refreshTokenHashes, passwordResetHash, passwordResetExpiresAt, savedPosts, savedBoardsInitialized, ...safe } = value;
   safe.id = String(safe._id || safe.id);
   safe.heatScore = Number(safe.heatScore || 0);
   safe.heatStreak = heatStreakPayload(safe);
@@ -211,7 +216,7 @@ export async function createUser(values) {
   }
   if (connected) return User.create(userValues);
   const now = new Date();
-  const user = { id: crypto.randomUUID(), heatScore: 0, heatStreakCurrent: 0, heatStreakLongest: 0, heatLastActiveDate: '', heatActivityDates: [], staffRole: 'member', cringeScore: 0, points: 0, postCount: 0, savedPosts: [], avatarUrl: '', bio: '', tagline: '', location: '', profileVisibility: { about: 'public', activity: 'public' }, bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', profileBackground: 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: 'featured', featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
+  const user = { id: crypto.randomUUID(), heatScore: 0, heatStreakCurrent: 0, heatStreakLongest: 0, heatLastActiveDate: '', heatActivityDates: [], staffRole: 'member', cringeScore: 0, points: 0, postCount: 0, savedPosts: [], savedBoardsInitialized: false, avatarUrl: '', bio: '', tagline: '', location: '', profileVisibility: { about: 'public', activity: 'public' }, bannerUrl: '', themeColor: '#ff4713', avatarFrame: 'none', profileEffect: 'none', profileBackground: 'clean', profileLayout: ['posts', 'guilds', 'heat'], showcaseMode: 'featured', featuredPosts: [], pinnedGuilds: [], socialLinks: {}, pronouns: '', status: 'online', preferences: { palette: 'callout', reducedMotion: false, feedDensity: 'comfortable', voteEffect: 'pop', notificationSound: 'callout', widgetOrder: ['trending-guilds', 'activity', 'achievements'], hiddenTopics: [] }, createdAt: now, updatedAt: now, ...userValues };
   memoryUsers.set(user.id, user);
   return user;
 }
@@ -612,7 +617,7 @@ export async function deletePost(postId, authorId, { isAdmin = false } = {}) {
     if (post) {
       await Promise.all([
         Comment.deleteMany({ post: postId }), Notification.deleteMany({ post: postId }),
-        User.updateMany({}, { $pull: { savedPosts: postId } }),
+        User.updateMany({}, { $pull: { savedPosts: postId } }), Collection.updateMany({}, { $pull: { posts: postId } }),
         User.findByIdAndUpdate(post.author, { $inc: { points: -10, postCount: -1 } })
       ]);
       const author = await User.findById(post.author);
@@ -631,6 +636,7 @@ export async function deletePost(postId, authorId, { isAdmin = false } = {}) {
   const user = memoryUsers.get(String(post.author)); if (user) { user.points = Math.max(0, (user.points || 0) - 10); user.heatScore = Math.max(0, Number(user.heatScore || 0) - 10); user.postCount = Math.max(0, (user.postCount || 0) - 1); }
   for (const [id, comment] of memoryComments) if (comment.post === String(postId)) memoryComments.delete(id);
   for (const account of memoryUsers.values()) account.savedPosts = (account.savedPosts || []).filter(id => id !== String(postId));
+  for (const collection of memoryCollections.values()) collection.posts = (collection.posts || []).filter(id => id !== String(postId));
   return post;
 }
 
@@ -642,13 +648,17 @@ export async function toggleSavedPost(userId, postId) {
     const saved = user.savedPosts.some(id => String(id) === String(postId));
     if (saved) user.savedPosts.pull(postId); else user.savedPosts.push(postId);
     await user.save();
+    if (saved) await Collection.updateMany({ owner: userId, type: 'saved' }, { $pull: { posts: postId } });
     return { saved: !saved, savedPostIds: user.savedPosts.map(String) };
   }
   const user = memoryUsers.get(String(userId));
   if (!user || !memoryPosts.has(String(postId))) return null;
   user.savedPosts ||= [];
   const index = user.savedPosts.indexOf(String(postId));
-  if (index >= 0) user.savedPosts.splice(index, 1); else user.savedPosts.push(String(postId));
+  if (index >= 0) {
+    user.savedPosts.splice(index, 1);
+    for (const collection of memoryCollections.values()) if (collection.owner === String(userId) && collection.type === 'saved') collection.posts = (collection.posts || []).filter(id => id !== String(postId));
+  } else user.savedPosts.push(String(postId));
   return { saved: index < 0, savedPostIds: user.savedPosts };
 }
 
@@ -1165,12 +1175,15 @@ const followKey = (followerId, followingId) => `${followerId}:${followingId}`;
 const collectionPayload = (value, viewerId = '') => {
   const row = normalize(value);
   if (!row) return null;
+  const ownerView = String(row.owner?._id || row.owner) === String(viewerId);
+  const totalPostCount = (row.posts || []).length;
   const posts = (row.posts || []).map(post => {
     const source = post?.content !== undefined ? post : connected ? null : memoryPosts.get(String(post));
-    if (!source || source.anonymous || source.draft || source.guild || (source.visibility || 'public') !== 'public') return null;
-    return { ...serializePost(source, viewerId), author: source.author?.displayName ? publicIdentity(source.author) : publicIdentity(memoryUsers.get(String(source.author))) };
+    if (!source || (!ownerView && (source.anonymous || source.draft || source.guild || (source.visibility || 'public') !== 'public'))) return null;
+    const author = source.author?.displayName ? source.author : memoryUsers.get(String(source.author));
+    return { ...serializePost(source, viewerId), author: postAuthor(source, viewerId, author) };
   }).filter(Boolean);
-  return { id: String(row._id || row.id), type: row.type, title: row.title, description: row.description || '', coverUrl: row.coverUrl || '', visibility: row.visibility || 'private', posts, postCount: posts.length, createdAt: row.createdAt, updatedAt: row.updatedAt };
+  return { id: String(row._id || row.id), type: row.type, title: row.title, description: row.description || '', coverUrl: row.coverUrl || '', visibility: row.visibility || 'private', color: row.color || 'graphite', icon: row.icon || 'folder', position: Number(row.position || 0), posts, postIds: posts.map(post => post.id), postCount: posts.length, totalPostCount, hiddenPostCount: Math.max(0, totalPostCount - posts.length), createdAt: row.createdAt, updatedAt: row.updatedAt };
 };
 
 async function acceptedFriends(a, b) {
@@ -1314,6 +1327,101 @@ export async function listCollections(ownerId, viewerId = '') {
   return [...memoryCollections.values()].filter(row => row.owner === String(ownerId) && canViewSection(row.visibility, ownerId, viewerId, friends)).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).map(row => collectionPayload(row, viewerId));
 }
 
+export async function ensureSavedBoards(ownerId) {
+  if (connected) {
+    const user = await User.findById(ownerId).select('savedBoardsInitialized savedPosts');
+    if (!user || user.savedBoardsInitialized) return;
+    const existing = await Collection.find({ owner: ownerId, type: 'saved' }).sort({ updatedAt: -1 });
+    const existingTitles = new Set(existing.map(row => row.title.toLowerCase()));
+    const missing = DEFAULT_SAVED_BOARDS.filter(board => !existingTitles.has(board.title.toLowerCase())).map(board => ({ ...board, owner: ownerId, type: 'saved', visibility: 'private', posts: [] }));
+    if (missing.length) await Collection.insertMany(missing);
+    const saved = new Set((user.savedPosts || []).map(String));
+    const claimed = new Set();
+    for (const row of existing) {
+      const unique = (row.posts || []).map(String).filter(id => saved.has(id) && !claimed.has(id));
+      unique.forEach(id => claimed.add(id));
+      if (unique.length !== row.posts.length || unique.some((id, index) => id !== String(row.posts[index]))) { row.posts = unique; await row.save(); }
+    }
+    user.savedBoardsInitialized = true;
+    await user.save();
+    return;
+  }
+  const user = memoryUsers.get(String(ownerId));
+  if (!user || user.savedBoardsInitialized) return;
+  const existing = [...memoryCollections.values()].filter(row => row.owner === String(ownerId) && row.type === 'saved').sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const existingTitles = new Set(existing.map(row => row.title.toLowerCase()));
+  DEFAULT_SAVED_BOARDS.filter(board => !existingTitles.has(board.title.toLowerCase())).forEach(board => {
+    const id = crypto.randomUUID(); memoryCollections.set(id, { id, owner: String(ownerId), type: 'saved', visibility: 'private', posts: [], createdAt: new Date(), updatedAt: new Date(), ...board });
+  });
+  const saved = new Set((user.savedPosts || []).map(String)); const claimed = new Set();
+  for (const row of existing) {
+    row.posts = (row.posts || []).map(String).filter(id => {
+      if (!saved.has(id) || claimed.has(id)) return false;
+      claimed.add(id);
+      return true;
+    });
+  }
+  user.savedBoardsInitialized = true;
+}
+
+export async function listSavedBoards(ownerId) {
+  await ensureSavedBoards(ownerId);
+  if (connected) {
+    const rows = await Collection.find({ owner: ownerId, type: 'saved' }).sort({ position: 1, createdAt: 1 }).populate({ path: 'posts', populate: { path: 'author', select: 'displayName handle avatarUrl heatScore' } }).lean();
+    return rows.map(row => collectionPayload(row, ownerId));
+  }
+  return [...memoryCollections.values()].filter(row => row.owner === String(ownerId) && row.type === 'saved').sort((a, b) => Number(a.position || 0) - Number(b.position || 0) || new Date(a.createdAt) - new Date(b.createdAt)).map(row => collectionPayload(row, ownerId));
+}
+
+export async function createSavedBoard(ownerId, values) {
+  await ensureSavedBoards(ownerId);
+  const count = connected ? await Collection.countDocuments({ owner: ownerId, type: 'saved' }) : [...memoryCollections.values()].filter(row => row.owner === String(ownerId) && row.type === 'saved').length;
+  if (count >= 20) return { status: 'limit' };
+  const board = await createCollection(ownerId, { type: 'saved', posts: [], position: count, ...values });
+  return { status: 'created', board };
+}
+
+export async function updateSavedBoard(boardId, ownerId, values) {
+  const board = connected ? await Collection.findOneAndUpdate({ _id: boardId, owner: ownerId, type: 'saved' }, values, { new: true, runValidators: true }).populate({ path: 'posts', populate: { path: 'author', select: 'displayName handle avatarUrl heatScore' } }) : memoryCollections.get(String(boardId));
+  if (!board || (!connected && (board.owner !== String(ownerId) || board.type !== 'saved'))) return null;
+  if (!connected) Object.assign(board, values, { updatedAt: new Date() });
+  return collectionPayload(board, ownerId);
+}
+
+export async function deleteSavedBoard(boardId, ownerId) {
+  const deleted = connected ? await Collection.findOneAndDelete({ _id: boardId, owner: ownerId, type: 'saved' }) : memoryCollections.get(String(boardId));
+  if (!deleted || (!connected && (deleted.owner !== String(ownerId) || deleted.type !== 'saved'))) return false;
+  if (!connected) memoryCollections.delete(String(boardId));
+  return true;
+}
+
+export async function moveSavedPostToBoard(ownerId, postId, boardId = '') {
+  const savedIds = await listSavedPostIds(ownerId);
+  if (!savedIds.includes(String(postId))) return { status: 'not_saved' };
+  if (connected) {
+    const target = boardId ? await Collection.findOne({ _id: boardId, owner: ownerId, type: 'saved' }) : null;
+    if (boardId && !target) return { status: 'not_found' };
+    if (target && !target.posts.some(id => String(id) === String(postId)) && target.posts.length >= 100) return { status: 'limit' };
+    await Collection.updateMany({ owner: ownerId, type: 'saved' }, { $pull: { posts: postId } });
+    if (target) await Collection.updateOne({ _id: target._id, owner: ownerId, type: 'saved' }, { $push: { posts: { $each: [postId], $position: 0 } }, $set: { updatedAt: new Date() } });
+    return { status: 'moved', boards: await listSavedBoards(ownerId) };
+  }
+  const target = boardId ? memoryCollections.get(String(boardId)) : null;
+  if (boardId && (!target || target.owner !== String(ownerId) || target.type !== 'saved')) return { status: 'not_found' };
+  if (target && !(target.posts || []).includes(String(postId)) && (target.posts || []).length >= 100) return { status: 'limit' };
+  for (const board of memoryCollections.values()) if (board.owner === String(ownerId) && board.type === 'saved') board.posts = (board.posts || []).filter(id => id !== String(postId));
+  if (target) { target.posts = [String(postId), ...(target.posts || [])]; target.updatedAt = new Date(); }
+  return { status: 'moved', boards: await listSavedBoards(ownerId) };
+}
+
+export async function reorderSavedBoards(ownerId, boardIds) {
+  const boards = await listSavedBoards(ownerId); const current = new Set(boards.map(board => board.id));
+  if (boardIds.length !== current.size || boardIds.some(id => !current.has(String(id)))) return null;
+  if (connected) await Collection.bulkWrite(boardIds.map((id, position) => ({ updateOne: { filter: { _id: id, owner: ownerId, type: 'saved' }, update: { $set: { position } } } })));
+  else boardIds.forEach((id, position) => { const board = memoryCollections.get(String(id)); board.position = position; board.updatedAt = new Date(); });
+  return listSavedBoards(ownerId);
+}
+
 export async function createCollection(ownerId, values) {
   if (connected) return collectionPayload(await Collection.create({ owner: ownerId, posts: [], ...values }), ownerId);
   const row = { id: crypto.randomUUID(), owner: String(ownerId), posts: [], createdAt: new Date(), updatedAt: new Date(), ...values }; memoryCollections.set(row.id, row); return collectionPayload(row, ownerId);
@@ -1334,9 +1442,21 @@ export async function addCollectionPost(collectionId, ownerId, postId) {
   if (!post || post.anonymous || post.guild || post.draft || (post.visibility || 'public') !== 'public') return null;
   if (connected) {
     const collection = await Collection.findOne({ _id: collectionId, owner: ownerId }); if (!collection || collection.type === 'portfolio' && String(post.author) !== String(ownerId)) return null;
+    if (collection.type === 'saved') {
+      const savedIds = await listSavedPostIds(ownerId);
+      if (!savedIds.includes(String(postId))) return null;
+      const result = await moveSavedPostToBoard(ownerId, postId, collectionId);
+      return result.status === 'moved' ? (await listSavedBoards(ownerId)).find(board => board.id === String(collectionId)) || null : null;
+    }
     collection.posts.pull(postId); collection.posts.push(postId); if (collection.posts.length > 100) collection.posts = collection.posts.slice(-100); await collection.save(); return updateCollection(collectionId, ownerId, {});
   }
   const collection = memoryCollections.get(String(collectionId)); if (!collection || collection.owner !== String(ownerId) || collection.type === 'portfolio' && String(post.author) !== String(ownerId)) return null;
+  if (collection.type === 'saved') {
+    const savedIds = await listSavedPostIds(ownerId);
+    if (!savedIds.includes(String(postId))) return null;
+    const result = await moveSavedPostToBoard(ownerId, postId, collectionId);
+    return result.status === 'moved' ? (await listSavedBoards(ownerId)).find(board => board.id === String(collectionId)) || null : null;
+  }
   collection.posts = [...collection.posts.filter(id => id !== String(postId)), String(postId)].slice(-100); collection.updatedAt = new Date(); return collectionPayload(collection, ownerId);
 }
 
@@ -1350,6 +1470,17 @@ export async function reorderCollection(collectionId, ownerId, postIds) {
   if (!row || String(row.owner) !== String(ownerId) && !connected) return null;
   const current = new Set((row.posts || []).map(String)); if (postIds.length !== current.size || postIds.some(id => !current.has(String(id)))) return null;
   row.posts = postIds; row.updatedAt = new Date(); if (connected) await row.save(); return connected ? updateCollection(collectionId, ownerId, {}) : collectionPayload(row, ownerId);
+}
+
+export async function reorderSavedBoardPosts(collectionId, ownerId, postIds) {
+  const row = connected ? await Collection.findOne({ _id: collectionId, owner: ownerId, type: 'saved' }) : memoryCollections.get(String(collectionId));
+  if (!row || (!connected && (row.owner !== String(ownerId) || row.type !== 'saved'))) return null;
+  const current = new Set((row.posts || []).map(String));
+  if (postIds.length !== current.size || postIds.some(id => !current.has(String(id)))) return null;
+  row.posts = postIds;
+  row.updatedAt = new Date();
+  if (connected) await row.save();
+  return connected ? updateSavedBoard(collectionId, ownerId, {}) : collectionPayload(row, ownerId);
 }
 
 export async function getPublicProfile(profileId, viewerId = '') {
@@ -1374,6 +1505,7 @@ export async function getPublicProfile(profileId, viewerId = '') {
   const aboutVisible = canViewSection(visibility.about || 'public', profileId, viewerId, friends);
   const activityVisible = canViewSection(visibility.activity || 'public', profileId, viewerId, friends);
   const [activity, collections] = await Promise.all([profileActivity(account, viewerId, activityVisible), listCollections(profileId, viewerId)]);
+  const profileCollections = collections.map(collection => collection.type !== 'saved' ? collection : (() => { const posts = collection.posts.filter(post => !post.anonymous); return { ...collection, posts, postIds: posts.map(post => post.id), postCount: posts.length, hiddenPostCount: Math.max(Number(collection.hiddenPostCount || 0), Number(collection.totalPostCount || 0) - posts.length) }; })());
   const following = viewerId ? (connected ? Boolean(await Follow.exists({ follower: viewerId, following: profileId })) : memoryFollows.some(item => item.follower === String(viewerId) && item.following === String(profileId))) : false;
   const serializedPosts = posts.map(post => serializePost(post, viewerId));
   const featuredIds = new Set((account.featuredPosts || []).map(String));
@@ -1383,7 +1515,7 @@ export async function getPublicProfile(profileId, viewerId = '') {
     bio: aboutVisible ? account.bio : '', tagline: aboutVisible ? account.tagline || '' : '', location: aboutVisible ? account.location || '' : '', socialLinks: aboutVisible ? account.socialLinks : {}, pronouns: aboutVisible ? account.pronouns : '', aboutVisible, activityVisible,
     status: account.status === 'invisible' && String(profileId) !== String(viewerId) ? 'offline' : account.status, heatScore: account.heatScore, heatTier: account.heatTier, heatStreak: account.heatStreak, createdAt: account.createdAt,
     stats: { posts: metrics.posts, comments: metrics.comments, guilds: guilds.length, hotTakeVotes: metrics.hotTakeVotes, followers: metrics.followers, following: metrics.following }, heatRank: standing.rank, heatRankTotal: standing.total,
-    badges: badgePayload(unlocks, metrics, standing), activity, collections, isFollowing: following, profileVisibility: String(profileId) === String(viewerId) ? visibility : undefined,
+    badges: badgePayload(unlocks, metrics, standing), activity, collections: profileCollections, isFollowing: following, profileVisibility: String(profileId) === String(viewerId) ? visibility : undefined,
     posts: serializedPosts,
     featuredPosts: serializedPosts.filter(post => featuredIds.has(post.id)),
     guilds: guilds.map(guild => serializeGuild(guild, viewerId)),

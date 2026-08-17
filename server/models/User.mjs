@@ -55,6 +55,7 @@ const userSchema = new mongoose.Schema({
   points: { type: Number, default: 0, min: 0, index: true },
   postCount: { type: Number, default: 0, min: 0 },
   savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+  savedBoardsInitialized: { type: Boolean, default: false },
   bio: { type: String, default: '', maxlength: 1000 },
   tagline: { type: String, default: '', maxlength: 80 },
   location: { type: String, default: '', maxlength: 80 },

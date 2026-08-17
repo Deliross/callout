@@ -77,6 +77,10 @@ const state = {
   guilds: Array.isArray(storedState?.guilds) ? storedState.guilds : [],
   savedPostIds: Array.isArray(storedState?.savedPostIds) ? storedState.savedPostIds.map(String) : [],
   savedPosts: [],
+  savedBoards: [],
+  activeSavedBoard: 'all',
+  savedSearch: '',
+  savedBoardsCollapsed: false,
   trendingPosts: [],
   leaderboard: [],
   basedLeaderboard: [],
@@ -97,6 +101,7 @@ const state = {
   ownProfileData: null,
   profileTab: 'posts',
   profilePostFilter: 'all',
+  profileBoardId: '',
   analytics: null,
   botAutomation: null,
   analyticsError: '',
@@ -155,6 +160,7 @@ let sessionRefreshRequest = null;
 let composerSubmissionInFlight = false;
 let composerRequestId = '';
 let publishingTimer = null;
+let savedSearchTimer = null;
 
 function sanitizeInput(value) {
   const source = String(value || '');
@@ -751,9 +757,9 @@ async function hydrateAdminControl() {
   } catch (error) { state.adminError = error.message; }
 }
 async function hydrateAccountData() {
-  if (!sessionUser) { state.savedPostIds = []; state.savedPosts = []; state.notifications = []; state.messages = []; state.friendships = []; return; }
+  if (!sessionUser) { state.savedPostIds = []; state.savedPosts = []; state.savedBoards = []; state.notifications = []; state.messages = []; state.friendships = []; return; }
   const [saved, notifications, messages, friends] = await Promise.allSettled([apiFetch('/api/saved'), apiFetch('/api/notifications'), apiFetch('/api/messages'), apiFetch('/api/friends')]);
-  if (saved.status === 'fulfilled') { state.savedPostIds = (saved.value.savedPostIds || []).map(String); state.savedPosts = (saved.value.posts || []).map(mapPost); }
+  if (saved.status === 'fulfilled') { state.savedPostIds = (saved.value.savedPostIds || []).map(String); state.savedPosts = (saved.value.posts || []).map(mapPost); state.savedBoards = (saved.value.boards || []).map(board => ({ ...board, id: String(board.id), postIds: (board.postIds || board.posts?.map(post => post.id) || []).map(String) })); }
   if (notifications.status === 'fulfilled') state.notifications = notifications.value.notifications || [];
   if (messages.status === 'fulfilled') state.messages = messages.value.messages || [];
   if (friends.status === 'fulfilled') state.friendships = friends.value.friendships || [];
@@ -764,10 +770,10 @@ async function hydrateAccountData() {
 }
 
 async function hydrateSavedPosts() {
-  if (!sessionUser) { state.savedPostIds = []; return; }
+  if (!sessionUser) { state.savedPostIds = []; state.savedPosts = []; state.savedBoards = []; return; }
   try {
     const saved = await apiFetch('/api/saved');
-    state.savedPostIds = (saved.savedPostIds || []).map(String); state.savedPosts = (saved.posts || []).map(mapPost); persist();
+    state.savedPostIds = (saved.savedPostIds || []).map(String); state.savedPosts = (saved.posts || []).map(mapPost); state.savedBoards = (saved.boards || []).map(board => ({ ...board, id: String(board.id), postIds: (board.postIds || board.posts?.map(post => post.id) || []).map(String) })); persist();
   } catch (error) { console.error('Unable to load saved posts:', error); }
 }
 
@@ -1381,9 +1387,92 @@ function messagesView() {
 }
 
 function savedView() {
-  const saved = state.savedPosts;
-  return `${pageHeader('YOUR LIBRARY', 'Saved', 'Takes you want to revisit, kept private to your account.')}
-    ${saved.length ? `<section class="take-list">${saved.map(postTemplate).join('')}</section>` : emptyState('◇', 'Nothing saved yet', 'Use the bookmark on a real take and it will be collected here.')}`;
+  if (!sessionUser) return `${pageHeader('SAVED PINBOARD', 'Keep the Takes worth remembering.', 'Sign in to build private Boards from posts across Callout.', '<button class="primary-action" data-go-auth>Sign in</button>')}`;
+  const boardIds = new Set(state.savedBoards.flatMap(board => board.postIds || []));
+  if (state.activeSavedBoard !== 'all' && state.activeSavedBoard !== 'unsorted' && !state.savedBoards.some(board => board.id === state.activeSavedBoard)) state.activeSavedBoard = 'all';
+  const activeBoard = state.savedBoards.find(board => board.id === state.activeSavedBoard);
+  const byId = new Map(state.savedPosts.map(post => [post.id, post]));
+  let saved = activeBoard ? (activeBoard.postIds || []).map(id => byId.get(id)).filter(Boolean) : state.activeSavedBoard === 'unsorted' ? [...state.savedPosts].reverse().filter(post => !boardIds.has(post.id)) : [...state.savedPosts].reverse();
+  const search = state.savedSearch.trim().toLowerCase();
+  if (search) saved = saved.filter(post => `${post.text} ${post.authorName} ${post.authorHandle} ${post.category}`.toLowerCase().includes(search));
+  const tabs = [`<button class="saved-folder-tab system ${state.activeSavedBoard === 'all' ? 'active' : ''}" type="button" data-saved-board="all" data-board-drop="all"><span>ALL</span><b>${state.savedPosts.length}</b></button>`, ...state.savedBoards.map(board => `<button class="saved-folder-tab tone-${escapeHtml(board.color)} ${state.activeSavedBoard === board.id ? 'active' : ''}" type="button" data-saved-board="${board.id}" data-board-drop="${board.id}"><span>${savedBoardIcon(board.icon)} ${escapeHtml(board.title)}</span><b>${Number(board.totalPostCount ?? board.postCount ?? 0)}</b></button>`), `<button class="saved-folder-tab unsorted ${state.activeSavedBoard === 'unsorted' ? 'active' : ''}" type="button" data-saved-board="unsorted" data-board-drop="unsorted"><span>UNSORTED</span><b>${state.savedPosts.filter(post => !boardIds.has(post.id)).length}</b></button>`].join('');
+  return `<section class="saved-pinboard-page">
+    <header class="saved-pinboard-heading"><div><span class="section-kicker">YOUR LIBRARY</span><h1>SAVED PINBOARD</h1><p>Build collections from the Takes you cannot forget.</p></div><div><button class="quiet-action saved-mobile-boards" type="button" data-toggle-saved-mobile-rail>Boards</button><button class="primary-action" type="button" data-new-saved-board>＋ New Board</button></div></header>
+    <label class="saved-search"><svg><use href="#i-search"></use></svg><input type="search" value="${escapeHtml(state.savedSearch)}" placeholder="Search saved Takes" aria-label="Search saved Takes" /></label>
+    <nav class="saved-folder-tabs" aria-label="Saved Boards">${tabs}</nav>
+    <div class="saved-active-summary"><div><span class="saved-folder-mark tone-${escapeHtml(activeBoard?.color || (state.activeSavedBoard === 'unsorted' ? 'graphite' : 'yellow'))}">${savedBoardIcon(activeBoard?.icon || 'folder')}</span><div><strong>${escapeHtml(activeBoard?.title || (state.activeSavedBoard === 'unsorted' ? 'Unsorted' : 'All Saved'))}</strong><small>${activeBoard?.description ? escapeHtml(activeBoard.description) : state.activeSavedBoard === 'unsorted' ? 'Saved Takes waiting for a Board.' : 'Every post you have bookmarked.'}</small></div></div>${activeBoard ? `<button class="quiet-action" type="button" data-edit-saved-board="${activeBoard.id}">Edit Board</button>` : ''}</div>
+    ${saved.length ? `<section class="saved-pin-grid" aria-live="polite">${saved.map(post => savedPinCard(post, activeBoard)).join('')}</section>` : emptyState('◇', search ? 'No matching Takes' : state.activeSavedBoard === 'unsorted' ? 'Everything is organized' : 'This Board is empty', search ? 'Try a different search.' : state.activeSavedBoard === 'unsorted' ? 'New bookmarks will wait here until you move them.' : 'Drag a saved Take onto this Board, or use Move to Board on mobile.')}
+  </section>`;
+}
+
+function savedBoardIcon(icon = 'folder') {
+  return ({ folder: '▰', lightbulb: '◉', smile: '☺', clapperboard: '▤', bookmark: '▾', gamepad: '✣', music: '♪', flame: '♨' })[icon] || '▰';
+}
+
+function savedPinCard(post, board) {
+  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0); const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50; const hot = 100 - based;
+  const media = (post.media || [])[0];
+  const mediaMarkup = media ? `<div class="saved-pin-media">${media.type === 'video' ? `<video src="${escapeHtml(media.url)}" muted playsinline preload="metadata"></video><span>VIDEO</span>` : `<img src="${escapeHtml(media.url)}" alt="${escapeHtml(media.alt || 'Saved post media')}" loading="lazy" />`}</div>` : '';
+  return `<article class="saved-pin-card tone-${escapeHtml(board?.color || savedPostBoard(post.id)?.color || 'graphite')}" draggable="true" data-saved-pin="${post.id}" data-post-id="${post.id}">
+    <span class="saved-pin-tab">${savedBoardIcon(board?.icon || savedPostBoard(post.id)?.icon || 'folder')}</span>
+    <header>${postAvatarMarkup(post)}<div><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><small>${timeLabel(post.createdAt)} · ${escapeHtml(post.category || 'Callout')}</small></div><button class="icon-button save-button saved" type="button" data-save-post="${post.id}" aria-label="Remove from saved"><svg><use href="#i-bookmark"></use></svg></button></header>
+    <button class="saved-pin-open" type="button" data-open-take="${post.id}"><strong>${formatPostContent(post.text)}</strong>${mediaMarkup}</button>
+    <div class="saved-pin-vote" style="--based:${based}%"><span>BASED ${based}%</span><span>HOT TAKE ${hot}%</span></div>
+    <footer><span>${total.toLocaleString()} vote${total === 1 ? '' : 's'}</span><span>◯ ${Number(post.commentCount || 0).toLocaleString()}</span><button type="button" data-move-saved-post="${post.id}">Move</button></footer>
+  </article>`;
+}
+
+function savedPostBoard(postId) { return state.savedBoards.find(board => (board.postIds || []).includes(String(postId))); }
+
+function renderSavedBoardsRail(route = currentRoute()) {
+  const rail = document.querySelector('#rightRail'); if (!rail) return;
+  rail.querySelector('.saved-boards-rail')?.remove();
+  rail.classList.toggle('saved-mode', route === 'saved');
+  if (route !== 'saved') document.body.classList.remove('saved-mobile-rail-open');
+  if (route !== 'saved') return;
+  const assigned = new Set(state.savedBoards.flatMap(board => board.postIds || []));
+  const unsorted = state.savedPosts.filter(post => !assigned.has(post.id)).length;
+  rail.insertAdjacentHTML('afterbegin', `<section class="saved-boards-rail ${state.savedBoardsCollapsed ? 'collapsed' : ''}" aria-label="Saved Boards"><header><div><span class="section-kicker">ORGANIZE</span><h2>BOARDS</h2></div><button type="button" data-toggle-saved-rail aria-label="${state.savedBoardsCollapsed ? 'Expand' : 'Collapse'} Boards">${state.savedBoardsCollapsed ? '›' : '×'}</button></header><div class="saved-rail-body">
+    <button class="saved-rail-row system ${state.activeSavedBoard === 'all' ? 'active' : ''}" type="button" data-saved-board="all"><span class="saved-folder-mark tone-yellow">▰</span><strong>All Saved</strong><b>${state.savedPosts.length}</b></button>
+    ${state.savedBoards.map((board, index) => `<div class="saved-rail-row-wrap" data-board-drop="${board.id}"><button class="saved-rail-row ${state.activeSavedBoard === board.id ? 'active' : ''}" type="button" data-saved-board="${board.id}"><span class="saved-folder-mark tone-${escapeHtml(board.color)}">${savedBoardIcon(board.icon)}</span><span><strong>${escapeHtml(board.title)}</strong><small>${escapeHtml(board.visibility)}${board.hiddenPostCount ? ` · ${board.hiddenPostCount} hidden publicly` : ''}</small></span><b>${Number(board.totalPostCount ?? board.postCount ?? 0)}</b></button><div class="saved-board-row-actions"><button type="button" data-shift-saved-board="${board.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Move ${escapeHtml(board.title)} up">↑</button><button type="button" data-shift-saved-board="${board.id}" data-direction="1" ${index === state.savedBoards.length - 1 ? 'disabled' : ''} aria-label="Move ${escapeHtml(board.title)} down">↓</button><button type="button" data-edit-saved-board="${board.id}" aria-label="Edit ${escapeHtml(board.title)}">•••</button></div></div>`).join('')}
+    <button class="saved-rail-row ${state.activeSavedBoard === 'unsorted' ? 'active' : ''}" type="button" data-saved-board="unsorted" data-board-drop="unsorted"><span class="saved-folder-mark tone-graphite">▱</span><strong>Unsorted</strong><b>${unsorted}</b></button>
+    <button class="saved-rail-new" type="button" data-new-saved-board>＋ New Board</button></div><footer><button type="button" data-toggle-saved-rail>‹ <span>Collapse</span></button></footer></section>`);
+}
+
+function savedBoardForm(board = {}) {
+  const colors = ['green', 'orange', 'yellow', 'blue', 'purple', 'red', 'teal', 'graphite']; const icons = ['folder', 'lightbulb', 'smile', 'clapperboard', 'bookmark', 'gamepad', 'music', 'flame'];
+  return `<form id="savedBoardForm" class="saved-board-form"><label>Board name<input name="title" maxlength="80" required value="${escapeHtml(board.title || '')}" placeholder="e.g. Content ideas" /></label><label>Description<textarea name="description" maxlength="240" placeholder="What belongs here?">${escapeHtml(board.description || '')}</textarea></label><fieldset><legend>Color</legend><div class="saved-board-swatches">${colors.map(color => `<label class="tone-${color}"><input type="radio" name="color" value="${color}" ${color === (board.color || 'green') ? 'checked' : ''} /><span aria-label="${color}"></span></label>`).join('')}</div></fieldset><fieldset><legend>Icon</legend><div class="saved-board-icons">${icons.map(icon => `<label><input type="radio" name="icon" value="${icon}" ${icon === (board.icon || 'folder') ? 'checked' : ''} /><span>${savedBoardIcon(icon)}</span><small>${icon}</small></label>`).join('')}</div></fieldset><label>Visibility<select name="visibility"><option value="private" ${board.visibility !== 'public' ? 'selected' : ''}>Private</option><option value="public" ${board.visibility === 'public' ? 'selected' : ''}>Public</option></select><small>Public Boards can appear on your profile. Saved posts remain private otherwise.</small></label><button class="primary-action" type="submit">${board.id ? 'Save Board' : 'Create Board'}</button>${board.id ? '<button class="danger-action" type="button" data-delete-saved-board>Delete Board</button>' : ''}</form>`;
+}
+
+function openSavedBoardEditor(boardId = '') {
+  const board = state.savedBoards.find(item => item.id === String(boardId)) || {};
+  showActionDialog(actionDialogShell(board.id ? 'EDIT BOARD' : 'NEW BOARD', board.id ? board.title : 'Start a new collection', savedBoardForm(board)));
+  document.querySelector('#savedBoardForm')?.addEventListener('submit', async event => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
+    try { await apiFetch(board.id ? `/api/saved/boards/${board.id}` : '/api/saved/boards', { method: board.id ? 'PATCH' : 'POST', body: JSON.stringify(values) }); await hydrateSavedPosts(); closeActionDialog(); renderRoute(); showToast(board.id ? 'Board updated.' : 'Board created privately.'); }
+    catch (error) { showToast(error.message); }
+  });
+  document.querySelector('[data-delete-saved-board]')?.addEventListener('click', async () => {
+    if (!window.confirm(`Delete “${board.title}”? Its posts will stay saved in Unsorted.`)) return;
+    try { await apiFetch(`/api/saved/boards/${board.id}`, { method: 'DELETE' }); state.activeSavedBoard = 'unsorted'; await hydrateSavedPosts(); closeActionDialog(); renderRoute(); showToast('Board deleted. Your posts are still saved.'); }
+    catch (error) { showToast(error.message); }
+  });
+}
+
+function openSavedMoveMenu(postId) {
+  const current = savedPostBoard(postId);
+  const rows = [`<button type="button" data-pick-saved-board="unsorted" class="${!current ? 'active' : ''}"><span class="saved-folder-mark tone-graphite">▱</span><span><strong>Unsorted</strong><small>Keep saved without a Board</small></span></button>`, ...state.savedBoards.map(board => `<button type="button" data-pick-saved-board="${board.id}" class="${current?.id === board.id ? 'active' : ''}"><span class="saved-folder-mark tone-${escapeHtml(board.color)}">${savedBoardIcon(board.icon)}</span><span><strong>${escapeHtml(board.title)}</strong><small>${escapeHtml(board.visibility)}</small></span></button>`)].join('');
+  showActionDialog(actionDialogShell('MOVE SAVED TAKE', 'Choose one Board', `<div class="saved-move-picker">${rows}</div>`));
+  document.querySelectorAll('[data-pick-saved-board]').forEach(button => button.addEventListener('click', async () => { closeActionDialog(); await moveSavedPost(postId, button.dataset.pickSavedBoard); }));
+}
+
+async function moveSavedPost(postId, boardId) {
+  const previous = structuredClone(state.savedBoards);
+  state.savedBoards.forEach(board => { board.postIds = (board.postIds || []).filter(id => id !== String(postId)); });
+  const target = state.savedBoards.find(board => board.id === boardId); if (target) target.postIds.unshift(String(postId));
+  renderRoute();
+  try { await apiFetch(boardId === 'unsorted' ? `/api/saved/boards/posts/${postId}` : `/api/saved/boards/${boardId}/posts/${postId}`, { method: boardId === 'unsorted' ? 'DELETE' : 'PUT' }); await hydrateSavedPosts(); renderRoute(); showToast(target ? `Moved to ${target.title}.` : 'Moved to Unsorted.'); }
+  catch (error) { state.savedBoards = previous; renderRoute(); showToast(error.message); }
 }
 
 function legacyProfileView() {
@@ -1429,7 +1518,7 @@ function legacyPublicUserView() {
   return `<section class="public-user-card profile-bg-${escapeHtml(user.profileBackground || 'clean')} profile-effect-${escapeHtml(user.profileEffect || 'none')}" style="--profile-accent:${escapeHtml(user.themeColor || '#ff4713')}"><div class="public-user-banner">${user.bannerUrl ? `<img src="${escapeHtml(user.bannerUrl)}" alt="" />` : ''}</div><div class="public-user-main"><span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><h1>${escapeHtml(user.displayName)}${user.isAutomated ? ' <span class="automation-label">AUTOMATED</span>' : ''}</h1><p>${escapeHtml(user.handle || '')}${user.pronouns ? ` · ${escapeHtml(user.pronouns)}` : ''}</p><small>${user.isAutomated ? `${escapeHtml(user.automationPersona || 'Callout automation')} · Clearly labelled automated account` : `${Number(user.heatScore || 0).toLocaleString()} Heat · ${escapeHtml(level.name)} · Level ${level.level}`}</small>${user.bio ? `<p class="profile-bio-line">${escapeHtml(user.bio.slice(0, 180))}</p>` : ''}</div><div class="public-user-actions">${user.isAutomated ? '<span class="automation-notice">Operated by Callout</span>' : user.friendship === 'self' ? '<button class="quiet-action" data-open-settings>Edit profile</button>' : `${friendButton}<button class="primary-action" type="button" data-message-user="${user.id}">Message</button>`}</div></div>${profileTabs(user)}${profileTabPanel(user)}</section>`;
 }
 
-const profileTabNames = ['posts', 'guilds', 'heat', 'about', 'activity', 'collections'];
+const profileTabNames = ['posts', 'guilds', 'heat', 'about', 'activity', 'boards', 'collections'];
 
 function profileAvatar(user, className = '') {
   return `<span class="avatar heat-frame ${heatFrameClass(user.heatScore || 0)} ${className}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(user.displayName || 'Callout member')}" />` : escapeHtml((user.displayName || 'C').charAt(0).toUpperCase())}</span>`;
@@ -1481,13 +1570,20 @@ function profileActivityPanel(user) {
 }
 
 function profileCollectionsPanel(user, own) {
-  const collections = user.collections || [];
-  return `<section class="dossier-panel dossier-collections"><header><div><span class="section-kicker">COLLECTIONS</span><h2>Curated by ${own ? 'you' : escapeHtml(user.displayName)}</h2></div>${own ? '<button class="primary-action" type="button" data-create-collection>＋ New collection</button>' : ''}</header>${collections.length ? `<div>${collections.map(collection => `<article><div class="collection-cover">${collection.coverUrl ? `<img src="${escapeHtml(collection.coverUrl)}" alt="" />` : `<span>${collection.type === 'portfolio' ? '▣' : '◇'}</span>`}</div><div><small>${escapeHtml(collection.type)} · ${escapeHtml(collection.visibility)}</small><h3>${escapeHtml(collection.title)}</h3><p>${escapeHtml(collection.description || 'No description')}</p><strong>${Number(collection.postCount || 0)} posts</strong></div>${own ? `<button type="button" data-edit-collection="${collection.id}">Manage</button>` : ''}</article>`).join('')}</div>` : emptyState('◇', 'No visible collections', own ? 'Create a private saved folder or a public creator portfolio.' : 'This member has no collections visible to you.')}</section>`;
+  const collections = (user.collections || []).filter(collection => collection.type === 'portfolio');
+  return `<section class="dossier-panel dossier-collections"><header><div><span class="section-kicker">COLLECTIONS</span><h2>Creator portfolios</h2></div>${own ? '<button class="primary-action" type="button" data-create-collection>＋ New portfolio</button>' : ''}</header>${collections.length ? `<div>${collections.map(collection => `<article><div class="collection-cover">${collection.coverUrl ? `<img src="${escapeHtml(collection.coverUrl)}" alt="" />` : '<span>▣</span>'}</div><div><small>portfolio · ${escapeHtml(collection.visibility)}</small><h3>${escapeHtml(collection.title)}</h3><p>${escapeHtml(collection.description || 'No description')}</p><strong>${Number(collection.postCount || 0)} posts</strong></div>${own ? `<button type="button" data-edit-collection="${collection.id}">Manage</button>` : ''}</article>`).join('')}</div>` : emptyState('◇', 'No visible portfolios', own ? 'Create a portfolio for your own public work.' : 'This member has no creator portfolios visible to you.')}</section>`;
+}
+
+function profileBoardsPanel(user, own) {
+  const boards = (user.collections || []).filter(collection => collection.type === 'saved' && (own || collection.visibility !== 'private'));
+  const selected = boards.find(board => board.id === state.profileBoardId);
+  if (selected) return `<section class="dossier-panel profile-boards-panel"><header><div><button class="profile-board-back" type="button" data-profile-board-back>← All Boards</button><h2>${savedBoardIcon(selected.icon)} ${escapeHtml(selected.title)}</h2><p>${escapeHtml(selected.description || 'A public Callout Board.')}</p></div><small>${Number(selected.postCount || 0)} visible posts${selected.hiddenPostCount ? ` · ${selected.hiddenPostCount} private` : ''}</small></header><div class="profile-board-posts">${selected.posts?.length ? selected.posts.map(post => `<button type="button" data-open-profile-post="${post.id}"><small>${escapeHtml(post.category || 'Callout')}</small><strong>${formatPostContent(post.content || '')}</strong><span>${Number(post.alrightVotes || 0)} Based · ${Number(post.cringeVotes || 0)} Hot Take</span></button>`).join('') : emptyState('◇', 'No public posts here', 'Restricted and anonymous saved posts stay private.')}</div></section>`;
+  return `<section class="dossier-panel profile-boards-panel"><header><div><span class="section-kicker">BOARDS</span><h2>${own ? 'Your Saved Pinboards' : `${escapeHtml(user.displayName)}’s public Boards`}</h2></div>${own ? '<button class="primary-action" type="button" data-open-saved-pinboard>Open Saved Pinboard</button>' : ''}</header>${boards.length ? `<div class="profile-board-grid">${boards.map(board => `<button class="profile-board-card tone-${escapeHtml(board.color || 'graphite')}" type="button" data-open-profile-board="${board.id}"><span>${savedBoardIcon(board.icon)}</span><div><small>${escapeHtml(board.visibility)}</small><strong>${escapeHtml(board.title)}</strong><p>${escapeHtml(board.description || 'Saved Takes')}</p></div><b>${Number(board.postCount || 0)}</b></button>`).join('')}</div>` : emptyState('▰', own ? 'No Boards yet' : 'No public Boards', own ? 'Open Saved to create your first Board.' : 'This member has not shared a Board publicly.')}</section>`;
 }
 
 function profileTabPanel(user, own = false) {
   const tab = profileTabNames.includes(state.profileTab) ? state.profileTab : 'posts';
-  return ({ posts: value => profilePostPanel(value, own), guilds: profileGuildPanel, heat: profileHeatPanel, about: profileAboutPanel, activity: profileActivityPanel, collections: value => profileCollectionsPanel(value, own) })[tab](user);
+  return ({ posts: value => profilePostPanel(value, own), guilds: profileGuildPanel, heat: profileHeatPanel, about: profileAboutPanel, activity: profileActivityPanel, boards: value => profileBoardsPanel(value, own), collections: value => profileCollectionsPanel(value, own) })[tab](user);
 }
 
 function profileDossier(user, own = false) {
@@ -1655,6 +1751,7 @@ function renderRoute() {
   mainContent.innerHTML = viewRenderers[route]();
   mainContent.dataset.route = route;
   document.body.dataset.route = route;
+  renderSavedBoardsRail(route);
   updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
@@ -1734,6 +1831,40 @@ function prepareBattleHostForm() {
 function bindViewInteractions(route) {
   bindPostInteractions();
   prepareBattleHostForm();
+  document.querySelectorAll('[data-new-saved-board]').forEach(button => button.addEventListener('click', () => openSavedBoardEditor()));
+  document.querySelectorAll('[data-edit-saved-board]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openSavedBoardEditor(button.dataset.editSavedBoard); }));
+  document.querySelectorAll('[data-saved-board]').forEach(button => button.addEventListener('click', () => { state.activeSavedBoard = button.dataset.savedBoard; renderRoute(); }));
+  document.querySelectorAll('[data-toggle-saved-rail]').forEach(button => button.addEventListener('click', () => { if (window.innerWidth <= 840) document.body.classList.remove('saved-mobile-rail-open'); else { state.savedBoardsCollapsed = !state.savedBoardsCollapsed; renderRoute(); } }));
+  document.querySelectorAll('[data-toggle-saved-mobile-rail]').forEach(button => button.addEventListener('click', () => document.body.classList.toggle('saved-mobile-rail-open')));
+  document.querySelectorAll('[data-move-saved-post]').forEach(button => button.addEventListener('click', () => openSavedMoveMenu(button.dataset.moveSavedPost)));
+  document.querySelector('.saved-search input')?.addEventListener('input', event => {
+    state.savedSearch = event.target.value; clearTimeout(savedSearchTimer); savedSearchTimer = setTimeout(() => { renderRoute(); const input = document.querySelector('.saved-search input'); input?.focus({ preventScroll: true }); input?.setSelectionRange(input.value.length, input.value.length); }, 140);
+  });
+  document.querySelectorAll('[data-shift-saved-board]').forEach(button => button.addEventListener('click', async event => {
+    event.stopPropagation(); const ids = state.savedBoards.map(board => board.id); const index = ids.indexOf(button.dataset.shiftSavedBoard); const next = index + Number(button.dataset.direction); if (next < 0 || next >= ids.length) return; [ids[index], ids[next]] = [ids[next], ids[index]];
+    const previous = [...state.savedBoards]; state.savedBoards = ids.map(id => state.savedBoards.find(board => board.id === id)); renderRoute();
+    try { await apiFetch('/api/saved/boards/order', { method: 'PATCH', body: JSON.stringify({ boardIds: ids }) }); await hydrateSavedPosts(); renderRoute(); }
+    catch (error) { state.savedBoards = previous; renderRoute(); showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-saved-pin]').forEach(card => {
+    card.addEventListener('dragstart', event => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/callout-saved-post', card.dataset.savedPin); card.classList.add('dragging'); });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    if (state.savedBoards.some(board => board.id === state.activeSavedBoard)) {
+      card.addEventListener('dragover', event => { event.preventDefault(); card.classList.add('reorder-target'); });
+      card.addEventListener('dragleave', () => card.classList.remove('reorder-target'));
+      card.addEventListener('drop', async event => {
+        event.preventDefault(); event.stopPropagation(); const dragged = event.dataTransfer.getData('text/callout-saved-post'); const target = card.dataset.savedPin; card.classList.remove('reorder-target'); if (!dragged || dragged === target) return;
+        const board = state.savedBoards.find(item => item.id === state.activeSavedBoard); const before = [...board.postIds]; const ids = before.filter(id => id !== dragged); ids.splice(ids.indexOf(target), 0, dragged); board.postIds = ids; renderRoute();
+        try { await apiFetch(`/api/saved/boards/${board.id}/order`, { method: 'PATCH', body: JSON.stringify({ postIds: ids }) }); await hydrateSavedPosts(); renderRoute(); }
+        catch (error) { board.postIds = before; renderRoute(); showToast(error.message); }
+      });
+    }
+  });
+  document.querySelectorAll('[data-board-drop]').forEach(target => {
+    target.addEventListener('dragover', event => { if (target.dataset.boardDrop !== 'all') { event.preventDefault(); target.classList.add('drop-ready'); } });
+    target.addEventListener('dragleave', () => target.classList.remove('drop-ready'));
+    target.addEventListener('drop', async event => { event.preventDefault(); target.classList.remove('drop-ready'); const postId = event.dataTransfer.getData('text/callout-saved-post'); const boardId = target.dataset.boardDrop; if (postId && boardId !== 'all') await moveSavedPost(postId, boardId); });
+  });
   document.querySelectorAll('[data-admin-section]').forEach(button => button.addEventListener('click', () => navigate(`admin/${button.dataset.adminSection}`)));
   document.querySelectorAll('.admin-console-view [data-route-button]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.routeButton)));
   document.querySelectorAll('[data-post-state]').forEach(button => button.addEventListener('click', () => {
@@ -1902,11 +2033,14 @@ function bindViewInteractions(route) {
     if (next < 0 || next >= order.length) return;
     [order[index], order[next]] = [order[next], order[index]]; state.profile.profileLayout = order; renderRoute();
   }));
-  document.querySelectorAll('[data-profile-tab]').forEach(button => button.addEventListener('click', () => { state.profileTab = button.dataset.profileTab; renderRoute(); }));
+  document.querySelectorAll('[data-profile-tab]').forEach(button => button.addEventListener('click', () => { state.profileTab = button.dataset.profileTab; if (state.profileTab !== 'boards') state.profileBoardId = ''; renderRoute(); }));
   document.querySelectorAll('[data-follow-user]').forEach(button => button.addEventListener('click', toggleProfileFollow));
   document.querySelectorAll('[data-profile-connections]').forEach(button => button.addEventListener('click', openProfileConnections));
   document.querySelectorAll('[data-profile-post-filter]').forEach(select => select.addEventListener('change', () => { state.profilePostFilter = select.value; renderRoute(); }));
   document.querySelectorAll('[data-open-profile-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openProfilePost}`)));
+  document.querySelectorAll('[data-open-profile-board]').forEach(button => button.addEventListener('click', () => { state.profileBoardId = button.dataset.openProfileBoard; renderRoute(); }));
+  document.querySelector('[data-profile-board-back]')?.addEventListener('click', () => { state.profileBoardId = ''; renderRoute(); });
+  document.querySelector('[data-open-saved-pinboard]')?.addEventListener('click', () => navigate('saved'));
   document.querySelector('[data-create-collection]')?.addEventListener('click', openCreateCollection);
   document.querySelectorAll('[data-edit-collection]').forEach(button => button.addEventListener('click', () => openCollectionManager(button.dataset.editCollection)));
   document.querySelectorAll('[data-add-post-collection]').forEach(button => button.addEventListener('click', () => openCollectionPicker(button.dataset.addPostCollection)));
@@ -2099,7 +2233,7 @@ async function openProfileConnections(event) {
 }
 
 function collectionForm(collection = {}) {
-  return `<form id="collectionForm"><label>Collection type<select name="type" ${collection.id ? 'disabled' : ''}><option value="saved" ${collection.type === 'saved' ? 'selected' : ''}>Saved collection</option><option value="portfolio" ${collection.type === 'portfolio' ? 'selected' : ''}>Creator portfolio</option></select><small>Portfolios can contain only your own public posts.</small></label><label>Title<input name="title" maxlength="80" value="${escapeHtml(collection.title || '')}" required /></label><label>Description<textarea name="description" maxlength="240">${escapeHtml(collection.description || '')}</textarea></label><label>Cover image URL<input name="coverUrl" type="url" maxlength="1000" value="${escapeHtml(collection.coverUrl || '')}" placeholder="https://…" /></label><label>Visibility<select name="visibility"><option value="private" ${!collection.visibility || collection.visibility === 'private' ? 'selected' : ''}>Private</option><option value="friends" ${collection.visibility === 'friends' ? 'selected' : ''}>Friends</option><option value="public" ${collection.visibility === 'public' ? 'selected' : ''}>Public</option></select></label><button class="primary-action" type="submit">${collection.id ? 'Save collection' : 'Create collection'}</button></form>`;
+  return `<form id="collectionForm"><input type="hidden" name="type" value="portfolio" /><p class="dialog-copy">Portfolios contain only your own public posts. Saved Boards are managed from the Saved Pinboard.</p><label>Title<input name="title" maxlength="80" value="${escapeHtml(collection.title || '')}" required /></label><label>Description<textarea name="description" maxlength="240">${escapeHtml(collection.description || '')}</textarea></label><label>Cover image URL<input name="coverUrl" type="url" maxlength="1000" value="${escapeHtml(collection.coverUrl || '')}" placeholder="https://…" /></label><label>Visibility<select name="visibility"><option value="private" ${!collection.visibility || collection.visibility === 'private' ? 'selected' : ''}>Private</option><option value="friends" ${collection.visibility === 'friends' ? 'selected' : ''}>Friends</option><option value="public" ${collection.visibility === 'public' ? 'selected' : ''}>Public</option></select></label><button class="primary-action" type="submit">${collection.id ? 'Save portfolio' : 'Create portfolio'}</button></form>`;
 }
 
 function openCreateCollection() {
@@ -2139,7 +2273,7 @@ function openCollectionManager(collectionId) {
 }
 
 function openCollectionPicker(postId) {
-  const collections = state.ownProfileData?.collections || [];
+  const collections = (state.ownProfileData?.collections || []).filter(collection => collection.type === 'portfolio');
   if (!collections.length) return openCreateCollection();
   showActionDialog(actionDialogShell('ADD TO COLLECTION', 'Choose a collection', `<div class="collection-picker">${collections.map(collection => `<button type="button" data-pick-collection="${collection.id}"><span><strong>${escapeHtml(collection.title)}</strong><small>${escapeHtml(collection.type)} · ${escapeHtml(collection.visibility)}</small></span><b>＋</b></button>`).join('')}</div>`));
   document.querySelectorAll('[data-pick-collection]').forEach(button => button.addEventListener('click', async () => {

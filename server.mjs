@@ -30,10 +30,10 @@ import {
   validate, verifyRefreshToken
 } from './server/security.mjs';
 import {
-  acceptFriendRequest, addCollectionPost, canAccessPost, connectDatabase, createCollection, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteCollection, deleteComment, deletePost,
+  acceptFriendRequest, addCollectionPost, canAccessPost, connectDatabase, createCollection, createSavedBoard, createComment, createFeatureIdea, createFriendRequest, createGuild, createGuildMessage, createGuildPost, createMessage, createPost, createReport, createUser, databaseMode, deleteCollection, deleteSavedBoard, deleteComment, deletePost,
   findUserByEmail, findUserByGoogleId, findUserById, getGuild, getPostForSpeech, getPublicProfile, getPublicPost, joinGuildByInvite, listComments, listFriends, listGuildAudit, listGuildMembers, listGuildMessages, listGuildPosts, listGuilds, listLeaderboard, listMessages,
-  deleteNotificationMute, followUser, listAnonymousPosts, listCollections, listDrafts, listFeatureIdeas, listFollowConnections, listNotificationMutes, listNotifications, listPosts, listSavedPostIds, listSavedPosts, markNotificationsRead, publicUser, recordPostView, removeCollectionPost, reorderCollection, searchCallout, setNotificationMute,
-  savePostSpeech, toggleGuildMembership, toggleSavedPost, unfollowUser, updateCollection, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
+  deleteNotificationMute, followUser, listAnonymousPosts, listCollections, listDrafts, listFeatureIdeas, listFollowConnections, listNotificationMutes, listNotifications, listPosts, listSavedBoards, listSavedPostIds, listSavedPosts, markNotificationsRead, moveSavedPostToBoard, publicUser, recordPostView, removeCollectionPost, reorderCollection, reorderSavedBoards, reorderSavedBoardPosts, searchCallout, setNotificationMute,
+  savePostSpeech, toggleGuildMembership, toggleSavedPost, unfollowUser, updateCollection, updateSavedBoard, updateGuild, updateGuildIdentity, updateGuildMember, updateGuildRole, updatePost, adminUpdatePost, updateUser, voteOnComment, voteOnPoll, voteOnPost, reactToPost
 } from './server/repository.mjs';
 
 dotenv.config();
@@ -581,7 +581,7 @@ app.delete('/api/comments/:id', requireAuth, requireWritableComment, async (req,
 });
 
 app.get('/api/saved', requireAuth, async (req, res, next) => {
-  try { res.json({ savedPostIds: await listSavedPostIds(req.userId), posts: await listSavedPosts(req.userId) }); } catch (error) { next(error); }
+  try { const [savedPostIds, posts, boards] = await Promise.all([listSavedPostIds(req.userId), listSavedPosts(req.userId), listSavedBoards(req.userId)]); res.json({ savedPostIds, posts, boards }); } catch (error) { next(error); }
 });
 app.post('/api/posts/:id/save', requireAuth, async (req, res, next) => {
   try {
@@ -590,6 +590,27 @@ app.post('/api/posts/:id/save', requireAuth, async (req, res, next) => {
     if (!saved) return res.status(404).json({ error: 'Post not found.' });
     res.json(saved);
   } catch (error) { next(error); }
+});
+app.post('/api/saved/boards', requireAuth, validate(schemas.savedBoard), async (req, res, next) => {
+  try { const result = await createSavedBoard(req.userId, req.body); if (result.status === 'limit') return res.status(409).json({ error: 'You can create up to 20 Boards.' }); res.status(201).json(result); } catch (error) { next(error); }
+});
+app.patch('/api/saved/boards/order', requireAuth, validate(schemas.savedBoardOrder), async (req, res, next) => {
+  try { const boards = await reorderSavedBoards(req.userId, req.body.boardIds); if (!boards) return res.status(400).json({ error: 'Board order is invalid.' }); res.json({ boards }); } catch (error) { next(error); }
+});
+app.patch('/api/saved/boards/:id', requireAuth, validate(schemas.savedBoardPatch), async (req, res, next) => {
+  try { const board = await updateSavedBoard(req.params.id, req.userId, req.body); if (!board) return res.status(404).json({ error: 'Board not found.' }); res.json({ board }); } catch (error) { next(error); }
+});
+app.delete('/api/saved/boards/:id', requireAuth, async (req, res, next) => {
+  try { if (!(await deleteSavedBoard(req.params.id, req.userId))) return res.status(404).json({ error: 'Board not found.' }); res.status(204).end(); } catch (error) { next(error); }
+});
+app.put('/api/saved/boards/:id/posts/:postId', requireAuth, async (req, res, next) => {
+  try { const result = await moveSavedPostToBoard(req.userId, req.params.postId, req.params.id); if (result.status === 'not_saved') return res.status(409).json({ error: 'Save this post before moving it to a Board.' }); if (result.status === 'not_found') return res.status(404).json({ error: 'Board not found.' }); if (result.status === 'limit') return res.status(409).json({ error: 'This Board already has 100 posts.' }); res.json(result); } catch (error) { next(error); }
+});
+app.delete('/api/saved/boards/posts/:postId', requireAuth, async (req, res, next) => {
+  try { const result = await moveSavedPostToBoard(req.userId, req.params.postId); if (result.status === 'not_saved') return res.status(409).json({ error: 'This post is not saved.' }); res.json(result); } catch (error) { next(error); }
+});
+app.patch('/api/saved/boards/:id/order', requireAuth, validate(schemas.collectionOrder), async (req, res, next) => {
+  try { const board = await reorderSavedBoardPosts(req.params.id, req.userId, req.body.postIds); if (!board) return res.status(400).json({ error: 'Board order is invalid.' }); res.json({ board }); } catch (error) { next(error); }
 });
 
 app.get('/api/guilds', optionalAuth, async (req, res, next) => {
@@ -678,7 +699,14 @@ app.get('/api/users/:id/collections', optionalAuth, async (req, res, next) => {
   try { res.json({ collections: await listCollections(req.params.id, req.userId) }); } catch (error) { next(error); }
 });
 app.post('/api/collections', requireAuth, validate(schemas.collection), async (req, res, next) => {
-  try { res.status(201).json({ collection: await createCollection(req.userId, req.body) }); } catch (error) { next(error); }
+  try {
+    if (req.body.type === 'saved') {
+      const result = await createSavedBoard(req.userId, req.body);
+      if (result.status === 'limit') return res.status(409).json({ error: 'You can create up to 20 Boards.' });
+      return res.status(201).json({ collection: result.board });
+    }
+    res.status(201).json({ collection: await createCollection(req.userId, req.body) });
+  } catch (error) { next(error); }
 });
 app.patch('/api/collections/:id', requireAuth, validate(schemas.collectionPatch), async (req, res, next) => {
   try { const collection = await updateCollection(req.params.id, req.userId, req.body); if (!collection) return res.status(404).json({ error: 'Collection not found.' }); res.json({ collection }); } catch (error) { next(error); }

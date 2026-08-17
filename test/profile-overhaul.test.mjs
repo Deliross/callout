@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   acceptFriendRequest, addCollectionPost, createCollection, createFriendRequest, createPost, createUser,
-  followUser, getPublicProfile, listCollections, listFollowConnections, reorderCollection, unfollowUser, updateUser
+  followUser, getPublicProfile, listCollections, listFollowConnections, reorderCollection, toggleSavedPost, unfollowUser, updateUser
 } from '../server/repository.mjs';
 
 const account = async label => createUser({ email: `${label}-${Date.now()}-${Math.random()}@example.com`, displayName: label });
@@ -60,16 +60,17 @@ test('collections default private, enforce portfolio ownership and preserve orde
   assert.deepEqual(ownerCollections[0].posts.map(post => post.id), [secondPost.id, ownPost.id]);
   assert.deepEqual(await listCollections(owner.id, other.id), []);
   const saved = await createCollection(owner.id, { type: 'saved', title: 'References', description: '', coverUrl: '', visibility: 'public' });
+  await toggleSavedPost(owner.id, outsidePost.id);
   assert.ok(await addCollectionPost(saved.id, owner.id, outsidePost.id));
   assert.equal((await listCollections(owner.id, other.id)).length, 1);
 });
 
-test('profile UI uses the shared dossier, six tabs and new badge shelf', async () => {
+test('profile UI uses the shared dossier, seven tabs and new badge shelf', async () => {
   const [app, styles] = await Promise.all([
     readFile(new URL('../app.js', import.meta.url), 'utf8'),
     readFile(new URL('../styles.css', import.meta.url), 'utf8')
   ]);
-  assert.match(app, /const profileTabNames = \['posts', 'guilds', 'heat', 'about', 'activity', 'collections'\]/);
+  assert.match(app, /const profileTabNames = \['posts', 'guilds', 'heat', 'about', 'activity', 'boards', 'collections'\]/);
   assert.match(app, /function profileDossier/);
   assert.match(app, /function profileBadgeShelf/);
   assert.match(app, /data-follow-user/);
