@@ -2,6 +2,43 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[char]));
 
+const escapeXml = value => escapeHtml(value).replace(/&#39;/g, '&apos;');
+const discoveryImagePath = '/assets/callout-discover-cover.png';
+const discoveryRobots = '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">';
+const discoveryFeed = '<link rel="alternate" type="application/rss+xml" title="Callout public Takes" href="/feed.xml">';
+
+function discoveryImageMeta(origin, image = `${origin}${discoveryImagePath}`) {
+  return `<meta property="og:image" content="${escapeHtml(image)}"><meta property="og:image:width" content="1672"><meta property="og:image:height" content="941"><meta property="og:image:alt" content="Callout — community opinions judged Based or Hot Take"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${escapeHtml(image)}">`;
+}
+
+function wrapPreviewText(value, maxCharacters = 28, maxLines = 5) {
+  const source = String(value || 'A take on Callout').trim();
+  const words = source.split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= maxCharacters || !line) line = next;
+    else { lines.push(line); line = word; }
+    if (lines.length === maxLines) break;
+  }
+  if (lines.length < maxLines && line) lines.push(line);
+  if (lines.join(' ').length < source.length && lines.length) lines[lines.length - 1] = `${lines[lines.length - 1].replace(/[.…]*$/, '')}…`;
+  return lines.slice(0, maxLines);
+}
+
+export function takePreviewSvg(post) {
+  const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
+  const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50;
+  const hot = 100 - based;
+  const lines = wrapPreviewText(post.content);
+  const lineHeight = lines.length > 3 ? 70 : 82;
+  const fontSize = lines.length > 3 ? 62 : 72;
+  const text = lines.map((line, index) => `<text x="74" y="${180 + index * lineHeight}" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="900" fill="#101114">${escapeXml(line)}</text>`).join('');
+  const basedWidth = Math.max(16, Math.round(1048 * based / 100));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675"><rect width="1200" height="675" fill="#f7f3eb"/><path d="M0 0h1200v28H0z" fill="#ffcf3f"/><rect x="58" y="55" width="1084" height="570" rx="28" fill="#fff" stroke="#101114" stroke-width="7"/><path d="M74 105h1052" stroke="#ded9cf" stroke-width="3"/><text x="74" y="93" font-family="Arial,sans-serif" font-size="25" font-weight="900" letter-spacing="3" fill="#ff4713">CALLOUT · ${escapeXml(post.category || 'COMMUNITY').toUpperCase()}</text>${text}<rect x="74" y="524" width="1048" height="24" rx="12" fill="#ff5137" stroke="#101114" stroke-width="4"/><rect x="76" y="526" width="${basedWidth}" height="20" rx="10" fill="#55df50"/><text x="74" y="590" font-family="Arial,sans-serif" font-size="28" font-weight="900" fill="#16a52c">${based}% BASED</text><text x="1122" y="590" text-anchor="end" font-family="Arial,sans-serif" font-size="28" font-weight="900" fill="#ef3f20">${hot}% HOT TAKE</text></svg>`;
+}
+
 const pageCopy = {
   about: {
     title: 'About Callout',
@@ -255,8 +292,44 @@ export function publicTakePage(post, comments, req) {
   const title = String(post.content || 'A take on Callout').slice(0, 90);
   const author = post.author?.displayName || 'Callout member';
   const commentItems = (comments || []).slice(0, 6).map(comment => `<li><strong>${escapeHtml(comment.author?.displayName || 'Callout member')}</strong><p>${escapeHtml(comment.text || '')}</p></li>`).join('');
-  const schema = { '@context': 'https://schema.org', '@type': 'SocialMediaPosting', headline: title, articleBody: post.content, datePublished: post.createdAt, author: { '@type': 'Person', name: author }, interactionStatistic: [{ '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: total }, { '@type': 'InteractionCounter', interactionType: 'https://schema.org/CommentAction', userInteractionCount: Number(post.commentCount || comments?.length || 0) }] };
+  const schema = {
+    '@context': 'https://schema.org', '@type': 'SocialMediaPosting', headline: title, articleBody: post.content,
+    datePublished: post.createdAt, dateModified: post.updatedAt || post.createdAt, mainEntityOfPage: canonical,
+    image: `${canonical}/preview.png`,
+    author: { '@type': 'Person', name: author, ...(post.author?.id ? { url: `${origin}/member/${post.author.id}` } : {}) },
+    publisher: { '@type': 'Organization', name: 'Callout', url: origin, logo: { '@type': 'ImageObject', url: `${origin}/assets/callout-logo.png` } },
+    interactionStatistic: [{ '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: total }, { '@type': 'InteractionCounter', interactionType: 'https://schema.org/CommentAction', userInteractionCount: Number(post.commentCount || comments?.length || 0) }]
+  };
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} | Callout</title><meta name="description" content="Read this ${escapeHtml(post.category || 'community')} take, see the live Based or Hot Take verdict, and join the discussion on Callout."><link rel="canonical" href="${canonical}"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:url" content="${canonical}"><meta property="og:image" content="${origin}/assets/callout-logo.png"><script type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script><link rel="icon" href="/assets/callout-logo.png"><link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;700;800&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{margin:0;background:#f6f3ec;color:#111;font-family:Inter,Arial,sans-serif}header,main,footer{max-width:960px;margin:auto;padding:20px}.brand{display:flex;align-items:center;gap:9px;color:#111;text-decoration:none;font-family:'Archivo Black';font-size:24px}.brand img{width:54px;height:54px}.card,.discussion{background:#fff;border:3px solid #111;border-radius:22px;box-shadow:8px 9px 0 #111;margin:35px 0;padding:30px}.byline{display:flex;align-items:center;gap:12px}.avatar{width:52px;height:52px;border:2px solid #111;border-radius:50%;object-fit:cover}.fallback{display:grid;place-items:center;background:#dff7ff;font-weight:900}.card h1{font-family:'Archivo Black';font-size:clamp(31px,6vw,58px);line-height:1.08;margin:35px 0}.verdict{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;font-weight:900}.bar{height:20px;border:3px solid #111;border-radius:999px;background:linear-gradient(90deg,#55df50 0 ${based}%,#ff5137 ${based}% 100%)}.meta{margin-top:18px;color:#5c5c5c}.discussion h2{font-family:'Archivo Black';font-size:28px}.discussion ul{padding:0;list-style:none}.discussion li{border-top:1px solid #ccc;padding:18px 0}.discussion p{line-height:1.55}.join{display:inline-block;background:#111;color:#fff;padding:14px 18px;border-radius:10px;text-decoration:none;font-weight:900}footer{display:flex;gap:18px;flex-wrap:wrap;border-top:1px solid #bbb}footer a{color:#111;font-weight:800;text-decoration:none}@media(max-width:600px){.verdict{grid-template-columns:1fr 1fr}.bar{grid-column:1/-1;grid-row:2}.card,.discussion{padding:22px}}</style></head><body><header><a class="brand" href="${origin}/"><img src="/assets/callout-logo.png" alt="">CALLOUT</a></header><main><article class="card"><div class="byline">${post.author?.avatarUrl ? `<img class="avatar" src="${escapeHtml(post.author.avatarUrl)}" alt="">` : `<span class="avatar fallback">${escapeHtml(author.charAt(0))}</span>`}<div><strong>${escapeHtml(author)}</strong><div>${escapeHtml(post.author?.handle || '@member')} &middot; ${escapeHtml(post.category || 'Community')}</div></div></div><h1>${escapeHtml(post.content)}</h1><div class="verdict"><span>${based}% BASED</span><div class="bar" aria-label="${based} percent Based"></div><span>${100 - based}% HOT TAKE</span></div><div class="meta">${total.toLocaleString()} genuine account votes &middot; ${Number(post.commentCount || comments?.length || 0).toLocaleString()} Takes</div></article><section class="discussion"><h2>Community Takes</h2>${commentItems ? `<ul>${commentItems}</ul>` : '<p>No Takes have been added yet. Open this post in Callout to start the discussion.</p>'}<a class="join" href="${origin}/#take/${escapeHtml(post.id)}">Open the live discussion</a></section></main><footer><a href="/about">About</a><a href="/community-guidelines">Guidelines</a><a href="/safety">Safety</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer></body></html>`;
+}
+
+export function rssFeed(posts, req) {
+  const origin = siteOrigin(req);
+  const updated = posts.reduce((latest, post) => {
+    const time = new Date(post.updatedAt || post.createdAt || 0).getTime();
+    return Number.isFinite(time) && time > latest ? time : latest;
+  }, 0) || Date.now();
+  const items = posts
+    .filter(post => !post.author?.isAutomated && !post.anonymous && String(post.content || '').trim().length >= 35)
+    .slice(0, 50)
+    .map(post => {
+      const url = `${origin}/take/${post.id}`;
+      const published = new Date(post.createdAt || Date.now()).toUTCString();
+      const author = post.author?.displayName || post.author?.handle || 'Callout member';
+      const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
+      return `<item><title>${escapeXml(String(post.content).slice(0, 140))}</title><link>${escapeXml(url)}</link><guid isPermaLink="true">${escapeXml(url)}</guid><pubDate>${published}</pubDate><dc:creator>${escapeXml(author)}</dc:creator><category>${escapeXml(post.category || 'Community')}</category><description>${escapeXml(`${post.content} — ${total} community votes. Read the live Based or Hot Take result and discussion on Callout.`)}</description><media:content url="${escapeXml(`${url}/preview.png`)}" type="image/png" medium="image" /></item>`;
+    }).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>Callout public Takes</title><link>${escapeXml(origin)}</link><description>Original opinions, live Based or Hot Take verdicts, and public discussion from Callout.</description><language>en</language><lastBuildDate>${new Date(updated).toUTCString()}</lastBuildDate><atom:link href="${escapeXml(`${origin}/feed.xml`)}" rel="self" type="application/rss+xml"/>${items}</channel></rss>`;
+}
+
+export function publicMemberPage(profile, req) {
+  const origin = siteOrigin(req);
+  const canonical = `${origin}/member/${profile.id}`;
+  const name = profile.displayName || 'Callout member';
+  const description = profile.tagline || profile.bio || `Read ${name}'s public Takes, Heat Level, and community activity on Callout.`;
+  const posts = (profile.posts || []).slice(0, 12).map(post => `<article><small>${escapeHtml(post.category || 'Community')}</small><h2><a href="/take/${escapeHtml(post.id)}">${escapeHtml(post.content || 'Untitled Take')}</a></h2><p>${Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0)} votes</p></article>`).join('');
+  const schema = { '@context': 'https://schema.org', '@type': 'ProfilePage', mainEntity: { '@type': 'Person', name, alternateName: profile.handle || '', description, image: profile.avatarUrl || undefined, url: canonical } };
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(name)} (${escapeHtml(profile.handle || '@member')}) | Callout</title><meta name="description" content="${escapeHtml(String(description).slice(0, 180))}"><link rel="canonical" href="${canonical}"><meta property="og:type" content="profile"><meta property="og:title" content="${escapeHtml(name)} on Callout"><meta property="og:description" content="${escapeHtml(String(description).slice(0, 180))}"><meta property="og:url" content="${canonical}"><meta property="og:image" content="${origin}${discoveryImagePath}"><script type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script><link rel="icon" href="/assets/callout-logo.png"><style>*{box-sizing:border-box}body{margin:0;background:#f6f3ec;color:#101114;font:16px Arial,sans-serif}header,main,footer{width:min(980px,calc(100% - 32px));margin:auto}.brand{display:inline-flex;align-items:center;gap:8px;margin:18px 0;color:#101114;text-decoration:none;font-weight:900}.brand img{width:48px;height:48px}.profile{background:#fff;border:3px solid #101114;border-radius:22px;box-shadow:8px 9px 0 #101114;padding:28px}.identity{display:flex;align-items:center;gap:18px}.identity img,.avatar{width:92px;height:92px;border:3px solid #101114;border-radius:50%;object-fit:cover}.avatar{display:grid;place-items:center;background:#55df50;font-size:34px;font-weight:900}.identity h1{font-size:42px;line-height:1;margin:0}.identity p{margin:8px 0;color:#555}.heat{margin-left:auto;background:#ffd84d;border:2px solid #101114;border-radius:12px;box-shadow:4px 4px 0 #101114;padding:14px 20px;font-weight:900}.bio{font-size:18px;line-height:1.6;margin:28px 0 0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:25px 0}.stats div{background:#fff;border:2px solid #101114;padding:14px}.stats strong{display:block;font-size:24px}main>h2{font-size:29px;margin-top:46px}.posts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.posts article{background:#fff;border:3px solid #101114;border-radius:17px;box-shadow:6px 7px 0 #101114;padding:21px}.posts small{font-weight:900;color:#ef4828}.posts h2{font-size:22px}.posts a{color:#101114;text-decoration:none}.empty{padding:28px;border:2px dashed #777}footer{display:flex;gap:18px;flex-wrap:wrap;padding:55px 0 35px}footer a{color:#101114;font-weight:800}@media(max-width:700px){.identity{align-items:flex-start;flex-wrap:wrap}.heat{margin-left:0}.stats{grid-template-columns:repeat(2,1fr)}.posts{grid-template-columns:1fr}}</style></head><body><header><a class="brand" href="/"><img src="/assets/callout-logo.png" alt="">CALLOUT</a></header><main><section class="profile"><div class="identity">${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(name)}">` : `<span class="avatar">${escapeHtml(name.charAt(0))}</span>`}<div><h1>${escapeHtml(name)}</h1><p>${escapeHtml(profile.handle || '@member')}${profile.pronouns ? ` · ${escapeHtml(profile.pronouns)}` : ''}</p></div><span class="heat">${Number(profile.heatScore || 0).toLocaleString()} HEAT<br>${escapeHtml(profile.heatTier?.name || 'Fresh Take')}</span></div>${description ? `<p class="bio">${escapeHtml(description)}</p>` : ''}<div class="stats"><div><strong>${Number(profile.stats?.posts || 0).toLocaleString()}</strong>Posts</div><div><strong>${Number(profile.stats?.comments || 0).toLocaleString()}</strong>Takes</div><div><strong>${Number(profile.stats?.followers || 0).toLocaleString()}</strong>Followers</div><div><strong>${Number(profile.stats?.guilds || 0).toLocaleString()}</strong>Guilds</div></div></section><h2>Public Takes</h2><section class="posts">${posts || '<p class="empty">No public Takes have been published yet.</p>'}</section></main><footer><a href="/about">About</a><a href="/community-guidelines">Guidelines</a><a href="/safety">Safety</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer></body></html>`;
 }
 
 export function rootSeoMarkup(posts, req) {

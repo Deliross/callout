@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcrypt';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -9,13 +10,14 @@ import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import sharp from 'sharp';
 import { featureFlags } from './server/featureFlags.mjs';
 import { analyticsDataConfigured, getAnalyticsDashboard } from './server/analytics.mjs';
 import { adsenseOAuthConfigured, completeAdsenseAuthorization, createAdsenseAuthorizationUrl, getAdsenseDashboard } from './server/adsense.mjs';
 import { botStatus, initializeBots, runBotCycle, setBotEnabled } from './server/bots.mjs';
 import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
-import { publicLibraryPage, publicNotFoundPage, publicPage, publicPagePaths, publicTakePage, rootSeoMarkup, seoHead, siteOrigin } from './server/publicPages.mjs';
+import { publicLibraryPage, publicMemberPage, publicNotFoundPage, publicPage, publicPagePaths, publicTakePage, rootSeoMarkup, rssFeed, seoHead, siteOrigin, takePreviewSvg } from './server/publicPages.mjs';
 import {
   closeBattleSubmissions, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
   deleteAboutUpdate, getAbout, getTopic, inspectAnonymousPost, listBattles, listPinboard, listPlatformAudit,
@@ -41,6 +43,7 @@ dotenv.config();
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const app = express();
+app.use(compression());
 const messageStreams = new Map();
 const requireFeature = name => async (_req, res, next) => {
   try { return await featureEnabled(name) ? next() : res.status(404).json({ error: 'This feature is not enabled yet.' }); }
@@ -811,27 +814,64 @@ app.get('/vendor/html2canvas.min.js', (_req, res) => res.sendFile(path.join(root
 app.get('/privacy', (_req, res) => res.sendFile(path.join(root, 'privacy.html')));
 app.get('/terms', (_req, res) => res.sendFile(path.join(root, 'terms.html')));
 app.get('/payments', (_req, res) => res.sendFile(path.join(root, 'payments.html')));
-app.get('/about', (req, res) => res.type('html').send(publicPage('about', req)));
-app.get('/learn', (req, res) => res.type('html').send(publicLibraryPage(req)));
-app.get('/how-callout-works', (req, res) => res.type('html').send(publicPage('how-callout-works', req)));
-app.get('/community-guidelines', (req, res) => res.type('html').send(publicPage('guidelines', req)));
-app.get('/safety', (req, res) => res.type('html').send(publicPage('safety', req)));
-app.get('/help', (req, res) => res.type('html').send(publicPage('help', req)));
-app.get('/guides/writing-a-strong-take', (req, res) => res.type('html').send(publicPage('writing-takes', req)));
-app.get('/guides/voting-and-verdicts', (req, res) => res.type('html').send(publicPage('voting-verdicts', req)));
-app.get('/guides/heat-level', (req, res) => res.type('html').send(publicPage('heat-level', req)));
-app.get('/guides/guilds', (req, res) => res.type('html').send(publicPage('guilds-guide', req)));
-app.get('/guides/battles', (req, res) => res.type('html').send(publicPage('battles-guide', req)));
-app.get('/guides/privacy-controls', (req, res) => res.type('html').send(publicPage('privacy-controls', req)));
-app.get('/moderation', (req, res) => res.type('html').send(publicPage('moderation', req)));
-app.get('/copyright', (req, res) => res.type('html').send(publicPage('copyright', req)));
-app.get('/accessibility', (req, res) => res.type('html').send(publicPage('accessibility', req)));
+const discoveryDirectives = 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
+const discoverableHtml = (html, req, imagePath = '/assets/callout-discover-cover.png') => {
+  const origin = siteOrigin(req);
+  const isTakePreview = imagePath.endsWith('/preview.png');
+  const image = `${origin}${imagePath}`;
+  return html
+    .replace(`${origin}/assets/callout-logo.png`, image)
+    .replace('</head>', `<meta name="robots" content="${discoveryDirectives}"><link rel="alternate" type="application/rss+xml" title="Callout public Takes" href="${origin}/feed.xml"><meta property="og:image:width" content="${isTakePreview ? 1200 : 1672}"><meta property="og:image:height" content="${isTakePreview ? 675 : 941}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${image}"></head>`);
+};
+const sendPublicPage = name => (req, res) => {
+  res.set('X-Robots-Tag', discoveryDirectives).type('html').send(discoverableHtml(publicPage(name, req), req));
+};
+app.get('/about', sendPublicPage('about'));
+app.get('/learn', (req, res) => res.set('X-Robots-Tag', discoveryDirectives).type('html').send(discoverableHtml(publicLibraryPage(req), req)));
+app.get('/how-callout-works', sendPublicPage('how-callout-works'));
+app.get('/community-guidelines', sendPublicPage('guidelines'));
+app.get('/safety', sendPublicPage('safety'));
+app.get('/help', sendPublicPage('help'));
+app.get('/guides/writing-a-strong-take', sendPublicPage('writing-takes'));
+app.get('/guides/voting-and-verdicts', sendPublicPage('voting-verdicts'));
+app.get('/guides/heat-level', sendPublicPage('heat-level'));
+app.get('/guides/guilds', sendPublicPage('guilds-guide'));
+app.get('/guides/battles', sendPublicPage('battles-guide'));
+app.get('/guides/privacy-controls', sendPublicPage('privacy-controls'));
+app.get('/moderation', sendPublicPage('moderation'));
+app.get('/copyright', sendPublicPage('copyright'));
+app.get('/accessibility', sendPublicPage('accessibility'));
+app.get('/member/:id', async (req, res, next) => {
+  try {
+    const profile = await getPublicProfile(req.params.id);
+    if (!profile || profile.isAutomated) return res.status(404).type('html').send(publicNotFoundPage(req));
+    res.set('X-Robots-Tag', discoveryDirectives).type('html').send(discoverableHtml(publicMemberPage(profile, req), req));
+  } catch (error) { next(error); }
+});
+app.get('/take/:id/preview.png', async (req, res, next) => {
+  try {
+    const post = await getPublicPost(req.params.id);
+    if (!post) return res.sendStatus(404);
+    const image = await sharp(Buffer.from(takePreviewSvg(post))).png({ compressionLevel: 9 }).toBuffer();
+    res.set('Cache-Control', 'public, max-age=900, stale-while-revalidate=3600').type('png').send(image);
+  } catch (error) { next(error); }
+});
 app.get('/take/:id', async (req, res, next) => {
   try {
     const post = await getPublicPost(req.params.id);
     if (!post) return res.status(404).type('html').send(publicNotFoundPage(req));
     const comments = await listComments(post.id);
-    res.type('html').send(publicTakePage(post, comments, req));
+    const previewPath = `/take/${post.id}/preview.png`;
+    const page = discoverableHtml(publicTakePage(post, comments, req), req, previewPath)
+      .replace('<article class="card">', `<article class="card"><img src="${previewPath}" width="1200" height="675" alt="Visual summary of this Callout Take" style="display:block;width:100%;height:auto;border:3px solid #111;border-radius:16px;margin-bottom:24px">`);
+    res.set('X-Robots-Tag', discoveryDirectives).type('html').send(page);
+  } catch (error) { next(error); }
+});
+app.get(['/feed.xml', '/rss.xml'], async (req, res, next) => {
+  try {
+    let posts = [];
+    try { posts = await listPosts(''); } catch (error) { console.error('RSS feed unavailable:', error.message); }
+    res.set('Cache-Control', 'public, max-age=900, stale-while-revalidate=3600').type('application/rss+xml').send(rssFeed(posts, req));
   } catch (error) { next(error); }
 });
 app.get('/robots.txt', (req, res) => {
@@ -843,11 +883,13 @@ app.get('/sitemap.xml', async (req, res, next) => {
     let posts = [];
     try { posts = await listPosts(''); } catch (error) { console.error('SSR feed unavailable:', error.message); }
     const staticPaths = ['/', '/learn', ...Object.values(publicPagePaths), '/privacy', '/terms', '/payments'];
+    const memberIds = [...new Set(posts.filter(post => !post.author?.isAutomated && post.author?.id).map(post => String(post.author.id)))];
     const urls = [
-      ...staticPaths.map(pathname => `${origin}${pathname}`),
-      ...posts.filter(post => !post.author?.isAutomated && String(post.content || '').trim().length >= 35).map(post => `${origin}/take/${post.id}`)
+      ...staticPaths.map(pathname => ({ url: `${origin}${pathname}`, lastmod: '2026-08-18' })),
+      ...memberIds.map(id => ({ url: `${origin}/member/${id}`, lastmod: '2026-08-18' })),
+      ...posts.filter(post => !post.author?.isAutomated && String(post.content || '').trim().length >= 35).map(post => ({ url: `${origin}/take/${post.id}`, lastmod: new Date(post.updatedAt || post.createdAt || Date.now()).toISOString().slice(0, 10) }))
     ];
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>${url.replace(/&/g, '&amp;')}</loc></url>`).join('\n')}\n</urlset>\n`;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(({ url, lastmod }) => `  <url><loc>${url.replace(/&/g, '&amp;')}</loc><lastmod>${lastmod}</lastmod></url>`).join('\n')}\n</urlset>\n`;
     res.set('Cache-Control', 'public, max-age=3600').type('application/xml').send(xml);
   } catch (error) { next(error); }
 });
@@ -872,13 +914,23 @@ async function renderIndex(req, res, next) {
     for (const [placeholder, value] of Object.entries(replacements)) template = template.replaceAll(placeholder, value);
     let posts = [];
     try { posts = await listPosts(''); } catch (error) { console.error('SSR feed unavailable:', error.message); }
-    template = template.replace('</head>', `${seoHead(req)}</head>`);
+    const origin = siteOrigin(req);
+    const homepageHead = seoHead(req)
+      .replace(`${origin}/assets/callout-logo.png`, `${origin}/assets/callout-discover-cover.png`)
+      .replace('<meta name="twitter:card"', `<meta property="og:image:width" content="1672"><meta property="og:image:height" content="941"><meta property="og:image:alt" content="Callout — community opinions judged Based or Hot Take"><meta name="twitter:image" content="${origin}/assets/callout-discover-cover.png"><meta name="twitter:card"`);
+    template = template.replace('</head>', `${homepageHead}<meta name="robots" content="${discoveryDirectives}"><link rel="alternate" type="application/rss+xml" title="Callout public Takes" href="${origin}/feed.xml"></head>`);
     template = template.replace('<main class="main-content" id="mainContent" tabindex="-1"></main>', `<main class="main-content" id="mainContent" tabindex="-1">${rootSeoMarkup(posts, req)}</main>`);
-    res.type('html').send(template);
+    res.set('X-Robots-Tag', discoveryDirectives).type('html').send(template);
   } catch (error) { next(error); }
 }
 app.get(['/', '/index.html'], renderIndex);
-app.use(express.static(root, { index: 'index.html', extensions: ['html'] }));
+app.use(express.static(root, {
+  index: 'index.html',
+  extensions: ['html'],
+  setHeaders: (res, filePath) => {
+    if (filePath.includes(`${path.sep}assets${path.sep}`) || /\.(?:css|js)$/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+  }
+}));
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
   res.status(404).type('html').send(publicNotFoundPage(req));
