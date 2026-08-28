@@ -19,6 +19,8 @@ test('home feed stays compact and does not render Callout emoji reactions', () =
   assert.match(css, /\.take-card-feed \.take-content h2[^}]+15px\/1\.35/);
   assert.match(css, /@keyframes feed-number-settle/);
   assert.match(css, /prefers-reduced-motion:reduce/);
+  assert.match(css, /\.feed-tabs \{ gap:0; padding-inline:0; \}/);
+  assert.match(css, /\.topbar \{ grid-template-columns:96px minmax\(0,1fr\) 42px 42px; \}/);
 });
 
 test('sidebar navigation is grouped into the approved sections', () => {
@@ -26,6 +28,6 @@ test('sidebar navigation is grouped into the approved sections', () => {
     assert.match(html, new RegExp(`>${section}<`));
   }
   assert.match(html, /data-route="notifications"/);
-  assert.match(html, /styles\.css\?v=20260828-compact-feed/);
-  assert.match(html, /app\.js\?v=20260828-compact-feed/);
+  assert.match(html, /styles\.css\?v=20260828-balanced-shell/);
+  assert.match(html, /app\.js\?v=20260828-balanced-shell/);
 });

@@ -1167,23 +1167,29 @@ html[data-resolved-theme="dark"] .saved-pin-card,html[data-resolved-theme="dark"
 
 /* Compact social feed + grouped navigation -------------------------------- */
 @media (min-width:1321px) {
-  .page-shell { grid-template-columns:220px minmax(600px,760px) 320px; justify-content:center; }
-  .topbar { grid-template-columns:220px minmax(600px,760px) 320px; justify-content:center; }
+  .page-shell { grid-template-columns:minmax(240px,.5fr) minmax(680px,1.5fr) minmax(340px,.5fr); }
+  .topbar { grid-template-columns:minmax(240px,.5fr) minmax(680px,1.5fr) minmax(340px,.5fr); }
+  .main-content,.site-footer { width:min(100%,920px); justify-self:center; }
+  .top-search { width:min(920px,calc(100% - 34px)); justify-self:center; margin-inline:0; }
+  .brand { justify-content:flex-end; }
+  .sidebar > * { width:220px; margin-right:0; margin-left:auto; }
+  .sidebar > .post-button { display:block; width:212px; margin:12px 4px 15px auto!important; }
+  .right-rail > * { width:320px; margin-right:auto; margin-left:0; }
 }
 
 .sidebar { padding:13px 10px 26px; }
-.main-nav { gap:12px; }
+.main-nav { gap:9px; }
 .nav-section { display:grid; gap:3px; padding-top:10px; border-top:1px solid var(--line); }
 .nav-section:first-child { padding-top:0; border-top:0; }
 .nav-section h2 { margin:0 10px 4px; color:var(--muted); font-size:9px; font-weight:950; letter-spacing:.13em; text-transform:uppercase; }
-.nav-item { min-height:43px; gap:11px; padding:0 10px; border-radius:9px; font-size:13px; }
+.nav-item { min-height:40px; gap:11px; padding:0 10px; border-radius:9px; font-size:13px; }
 .nav-item svg { width:20px; height:20px; flex-basis:20px; }
 .nav-item.active { border-width:1.5px; box-shadow:3px 3px 0 var(--ink); }
 .nav-badge { display:grid; place-items:center; min-width:21px; height:21px; margin-left:auto; padding:0 5px; border:1.5px solid var(--ink); border-radius:999px; color:#101114; background:var(--orange); font-size:9px; font-weight:950; }
-.post-button { min-height:47px; margin:14px 4px 18px; padding:7px 10px; border-radius:10px; font-size:13px; box-shadow:3px 4px 0 var(--ink); }
+.post-button { min-height:44px; margin:12px 4px 15px; padding:6px 10px; border-radius:10px; font-size:13px; box-shadow:3px 4px 0 var(--ink); }
 .post-button span { width:30px; height:30px; margin-right:7px; font-size:20px; }
 
-.main-content { padding:0 14px 44px; }
+.main-content { padding:0 16px 44px; }
 .feed-tabs { min-height:54px; gap:30px; padding-inline:4px; }
 .feed-tabs .tab { height:44px; font-size:13px; }
 .feed-tabs .tab.active::after { height:4px; }
@@ -1203,7 +1209,7 @@ html[data-resolved-theme="dark"] .saved-pin-card,html[data-resolved-theme="dark"
 .take-card-feed .take-byline strong { font-size:13px; }
 .take-card-feed .take-byline small { font-size:9px; }
 .take-card-feed .automation-label,.take-card-feed .anonymous-label { font-size:6px; }
-.take-card-feed .take-content h2 { max-width:none; font:800 15px/1.35 Inter,Arial,sans-serif; letter-spacing:-.01em; text-transform:none; }
+.take-card-feed .take-content h2 { max-width:720px; font:800 15px/1.35 Inter,Arial,sans-serif; letter-spacing:-.01em; text-transform:none; }
 .take-card-feed .icon-button { width:29px; height:29px; padding:5px; }
 .take-card-feed .take-media { margin:0 11px 9px; gap:3px; border-width:1.5px; border-radius:9px; }
 .take-card-feed .take-media img,.take-card-feed .take-media video { height:auto; aspect-ratio:16/9; object-fit:cover; }
@@ -1250,6 +1256,11 @@ html[data-resolved-theme="dark"] .feed-post-actions { border-color:#4c525e; }
 }
 
 @media (max-width:700px) {
+  .topbar { grid-template-columns:96px minmax(0,1fr) 42px 42px; }
+  .brand img { width:118px; height:118px; }
+  .top-search { min-width:0; margin:9px 5px; padding:0 9px; }
+  .top-search input { min-width:0; font-size:11px; }
+  .feed-tabs { gap:0; padding-inline:0; }
   .nav-section h2 { display:block; }
   .take-card-feed .take-media.media-count-4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .take-card-feed .take-media.media-count-4 img,.take-card-feed .take-media.media-count-4 video { aspect-ratio:1.15/1; }
@@ -1263,6 +1274,13 @@ html[data-resolved-theme="dark"] .feed-post-actions { border-color:#4c525e; }
   .feed-post-actions { gap:3px; }
   .feed-comment-action span { display:none; }
   .feed-vote-total { font-size:9px; }
+}
+
+@media (max-width:520px) {
+  .consent-banner { right:10px; bottom:10px; left:10px; width:auto; gap:14px; padding:16px; }
+  .consent-banner strong { font-size:17px; }
+  .consent-actions { grid-template-columns:1fr; }
+  .consent-actions button { white-space:normal; }
 }
 
 @media (prefers-reduced-motion:reduce) {
