@@ -766,6 +766,8 @@ async function hydrateAccountData() {
   try {
     const unread = state.notifications.filter(item => !item.read).length;
     const badge = document.querySelector('#notificationBadge'); badge.textContent = unread; badge.hidden = unread === 0;
+    const sidebarBadge = document.querySelector('#sidebarNotificationBadge');
+    if (sidebarBadge) { sidebarBadge.textContent = unread; sidebarBadge.hidden = unread === 0; }
   } catch (error) { console.error(error); }
 }
 
@@ -896,8 +898,9 @@ function postTemplate(post, detail = false) {
       <b class="percent cringe-percent">${cringePercent}%</b>
       <button class="vote-button cringe hot-take ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe"><span class="vote-face">${calloutGlyph('cringe')}</span><strong>HOT TAKE</strong></button>
     </div>
-    ${postEmojiPicker(post)}
-    <div class="take-footer"><span>${total} ${total === 1 ? 'vote' : 'votes'}　•　${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}</span>${detail ? '' : `<button class="comment-link" type="button" data-open-take="${post.id}">Open take →</button>`}</div>
+    ${detail
+      ? `<div class="take-footer"><span>${total} ${total === 1 ? 'vote' : 'votes'}　•　${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}</span></div>`
+      : feedPostActions(post, commentCount, isSaved)}
   </article>`;
 }
 
@@ -1024,6 +1027,30 @@ function postEmojiPicker(post) {
   </div>`;
 }
 
+function feedPostActions(post, commentCount, isSaved) {
+  const totalVotes = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
+  return `<div class="feed-post-actions">
+    <button class="feed-action feed-comment-action" type="button" data-open-take="${post.id}" aria-label="Open ${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}"><svg><use href="#i-message"></use></svg><span class="feed-count">${commentCount}</span><span>${commentCount === 1 ? 'Take' : 'Takes'}</span></button>
+    <span class="feed-vote-total" aria-label="${totalVotes} total votes"><span class="feed-count">${totalVotes}</span> ${totalVotes === 1 ? 'vote' : 'votes'}</span>
+    <span class="feed-action-spacer" aria-hidden="true"></span>
+    <button class="feed-action feed-icon-action" type="button" data-feed-share="${post.id}" aria-label="Share take">↥</button>
+    <button class="feed-action feed-icon-action ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>
+    <button class="feed-action feed-icon-action" type="button" data-post-menu="${post.id}" aria-label="Post options"><svg><use href="#i-more"></use></svg></button>
+  </div>`;
+}
+
+function feedQuickComposer() {
+  const name = sessionUser?.displayName || 'Guest';
+  const avatar = sessionUser?.avatarUrl
+    ? `<img src="${escapeHtml(sessionUser.avatarUrl)}" alt="" />`
+    : escapeHtml(name.charAt(0).toUpperCase());
+  return `<button class="feed-quick-composer" type="button" data-open-composer aria-label="Post a Take">
+    <span class="avatar heat-frame ${heatFrameClass(sessionUser?.heatTier || sessionUser?.heatScore || 0)}">${avatar}</span>
+    <span>Post a Take...</span>
+    <svg aria-hidden="true"><use href="#i-edit"></use></svg>
+  </button>`;
+}
+
 function homeView() {
   const rawSource = state.activeFeedTab === 'Anonymous' ? state.anonymousPosts : state.activeFeedTab === 'Trending' ? state.trendingPosts : state.posts;
   const source = sessionUser ? rawSource : rawSource.filter(post => !post.authorAutomated);
@@ -1040,6 +1067,7 @@ function homeView() {
     <div class="feed-tabs" role="tablist" aria-label="Feed views">
       ${['For You','Following','Anonymous','Trending'].map(label => `<button class="tab ${state.activeFeedTab === label ? 'active' : ''}" type="button" data-feed-tab="${label}">${label}</button>`).join('')}
     </div>
+    ${feedQuickComposer()}
     <div class="category-row" aria-label="Filter by category">
       <button class="chip active" type="button" data-category="All">All</button><button class="chip" type="button" data-category="Entertainment">Entertainment</button><button class="chip" type="button" data-category="Music">Music</button><button class="chip" type="button" data-category="Movies">Movies</button><button class="chip" type="button" data-category="Games">Games</button><button class="chip" type="button" data-category="Life">Life</button>
     </div>
@@ -1806,6 +1834,11 @@ function bindPostInteractions() {
     element.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
   });
   document.querySelectorAll('[data-post-menu]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openPostMenu(button.dataset.postMenu); }));
+  document.querySelectorAll('[data-feed-share]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation();
+    const post = findPostById(button.dataset.feedShare);
+    if (post) sharePost(post);
+  }));
   document.querySelectorAll('[data-poll-option]').forEach(button => button.addEventListener('click', async () => {
     if (!sessionUser) { navigate('auth'); return showToast('Sign in to vote in polls.'); }
     try { const payload = await apiFetch(`/api/posts/${button.dataset.pollPost}/poll-vote`, { method: 'POST', body: JSON.stringify({ optionId: button.dataset.pollOption }) }); Object.assign(findPostById(button.dataset.pollPost), mapPost(payload.post)); renderRoute(); }

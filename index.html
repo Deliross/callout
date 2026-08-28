@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260813-edge-to-edge" />
+    <link rel="stylesheet" href="styles.css?v=20260828-compact-feed" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -66,18 +66,34 @@
 
       <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
         <nav class="main-nav">
-          <a class="nav-item active" href="#home" data-route="home"><svg><use href="#i-home"></use></svg><span>Home</span></a>
-          <a class="nav-item" href="#trending" data-route="trending"><svg><use href="#i-trend"></use></svg><span>Trending</span></a>
-          <a class="nav-item" href="#guilds" data-route="guilds"><svg><use href="#i-users"></use></svg><span>Guilds</span></a>
-          <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
-          <a class="nav-item" href="#leaderboards" data-route="leaderboards"><svg><use href="#i-trophy"></use></svg><span>Leaderboards</span></a>
-          <a class="nav-item" href="#battles" data-route="battles"><svg><use href="#i-battles"></use></svg><span>Battles</span></a>
-          <a class="nav-item" href="#messages" data-route="messages"><svg><use href="#i-message"></use></svg><span>Messages</span></a>
-          <a class="nav-item" href="#saved" data-route="saved"><svg><use href="#i-bookmark"></use></svg><span>Saved</span></a>
-          <a class="nav-item" href="#settings" data-route="settings"><svg><use href="#i-settings"></use></svg><span>Settings</span></a>
-          <a class="nav-item" id="analyticsNav" href="#analytics" data-route="analytics" hidden><svg><use href="#i-analytics"></use></svg><span>Analytics</span></a>
-          <a class="nav-item" id="adminNav" href="#admin" data-route="admin" hidden><svg><use href="#i-admin"></use></svg><span>Admin Control</span></a>
-          <a class="nav-item" href="#auth" data-route="auth"><svg><use href="#i-signin"></use></svg><span>Sign in</span></a>
+          <section class="nav-section" aria-labelledby="nav-discover-label">
+            <h2 id="nav-discover-label">Discover</h2>
+            <a class="nav-item active" href="#home" data-route="home"><svg><use href="#i-home"></use></svg><span>Home</span></a>
+            <a class="nav-item" href="#trending" data-route="trending"><svg><use href="#i-trend"></use></svg><span>Trending</span></a>
+            <a class="nav-item" href="#guilds" data-route="guilds"><svg><use href="#i-users"></use></svg><span>Guilds</span></a>
+            <a class="nav-item" href="#leaderboards" data-route="leaderboards"><svg><use href="#i-trophy"></use></svg><span>Leaderboards</span></a>
+          </section>
+
+          <section class="nav-section" aria-labelledby="nav-social-label">
+            <h2 id="nav-social-label">Social</h2>
+            <a class="nav-item" href="#messages" data-route="messages"><svg><use href="#i-message"></use></svg><span>Messages</span></a>
+            <a class="nav-item" href="#saved" data-route="saved"><svg><use href="#i-bookmark"></use></svg><span>Saved</span></a>
+            <a class="nav-item" href="#notifications" data-route="notifications"><svg><use href="#i-bell"></use></svg><span>Notifications</span><b class="nav-badge" id="sidebarNotificationBadge" hidden>0</b></a>
+          </section>
+
+          <section class="nav-section" aria-labelledby="nav-originals-label">
+            <h2 id="nav-originals-label">Originals</h2>
+            <a class="nav-item" href="#battles" data-route="battles"><svg><use href="#i-battles"></use></svg><span>Battles</span></a>
+            <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
+          </section>
+
+          <section class="nav-section" aria-labelledby="nav-account-label">
+            <h2 id="nav-account-label">Account</h2>
+            <a class="nav-item" href="#settings" data-route="settings"><svg><use href="#i-settings"></use></svg><span>Settings</span></a>
+            <a class="nav-item" id="analyticsNav" href="#analytics" data-route="analytics" hidden><svg><use href="#i-analytics"></use></svg><span>Analytics</span></a>
+            <a class="nav-item" id="adminNav" href="#admin" data-route="admin" hidden><svg><use href="#i-admin"></use></svg><span>Admin Control</span></a>
+            <a class="nav-item" href="#auth" data-route="auth"><svg><use href="#i-signin"></use></svg><span>Sign in</span></a>
+          </section>
         </nav>
         <button class="post-button" id="openComposer" type="button"><span>＋</span> Post Take</button>
 
@@ -188,6 +204,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260801-composer"></script>
+    <script src="app.js?v=20260828-compact-feed"></script>
   </body>
 </html>
