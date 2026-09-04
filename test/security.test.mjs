@@ -23,21 +23,21 @@ test('comment validation supports MongoDB and local fallback record ids', () => 
 
 test('media validation accepts five mixed attachments and enforces short video rules', () => {
   const image = { type: 'image', url: 'data:image/webp;base64,AA==', alt: 'image', duration: 0, aspectRatio: 1.8 };
-  assert.equal(schemas.post.validate({ content: 'Image take', category: 'Life', media: [image, image] }).error, undefined);
-  assert.equal(schemas.post.validate({ content: 'Flexible layout', category: 'Life', media: [image, image, image, image, image] }).error, undefined);
-  assert.ok(schemas.post.validate({ content: 'Too many', category: 'Life', media: [image, image, image, image, image, image] }).error);
-  assert.equal(schemas.post.validate({ content: 'Video take', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 25, aspectRatio: 1 }] }).error, undefined);
-  assert.ok(schemas.post.validate({ content: 'Long video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 26, aspectRatio: 1 }] }).error);
-  assert.ok(schemas.post.validate({ content: 'Wide video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 10, aspectRatio: 1.8 }] }).error);
+  assert.equal(schemas.post.validate({ title: 'Image take', category: 'Life', media: [image, image] }).error, undefined);
+  assert.equal(schemas.post.validate({ title: 'Flexible layout', category: 'Life', media: [image, image, image, image, image] }).error, undefined);
+  assert.ok(schemas.post.validate({ title: 'Too many', category: 'Life', media: [image, image, image, image, image, image] }).error);
+  assert.equal(schemas.post.validate({ title: 'Video take', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 25, aspectRatio: 1 }] }).error, undefined);
+  assert.ok(schemas.post.validate({ title: 'Long video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 26, aspectRatio: 1 }] }).error);
+  assert.ok(schemas.post.validate({ title: 'Wide video', category: 'Life', media: [{ type: 'video', url: 'data:video/mp4;base64,AA==', alt: '', duration: 10, aspectRatio: 1.8 }] }).error);
 });
 
 test('post text rejects hashtags and links while GIF attachment links stay valid', () => {
-  assert.ok(schemas.post.validate({ content: 'No #hashtags here', category: 'Life', media: [] }).error);
-  assert.ok(schemas.post.validate({ content: 'Visit https://example.com', category: 'Life', media: [] }).error);
-  assert.equal(schemas.post.validate({ content: 'A plain take', category: 'Life', media: [{ type: 'gif', url: 'https://example.com/reaction.gif', alt: '', duration: 0, aspectRatio: 1 }] }).error, undefined);
+  assert.ok(schemas.post.validate({ title: 'No #hashtags here', category: 'Life', media: [] }).error);
+  assert.ok(schemas.post.validate({ title: 'Visit https://example.com', category: 'Life', media: [] }).error);
+  assert.equal(schemas.post.validate({ title: 'A plain take', category: 'Life', media: [{ type: 'gif', url: 'https://example.com/reaction.gif', alt: '', duration: 0, aspectRatio: 1 }] }).error, undefined);
 });
 
-test('outside-post attachments can publish without a screenshot or caption', () => {
+test('outside-post attachments can publish with a title and without a screenshot', () => {
   const externalEmbed = {
     platform: 'x', url: 'https://x.com/jack/status/20', authorName: 'jack', authorHandle: '@jack',
     authorAvatar: 'https://example.com/avatar.jpg', text: 'just setting up my twttr', community: '',
@@ -45,8 +45,8 @@ test('outside-post attachments can publish without a screenshot or caption', () 
     mediaItems: [{ type: 'video', url: 'https://example.com/clip.mp4', thumbnailUrl: 'https://example.com/poster.jpg', alt: '' }], replyCount: 0,
     repostCount: 0, likeCount: 0, viewCount: 0, sourceCreatedAt: null, fetchedAt: new Date().toISOString()
   };
-  assert.equal(schemas.post.validate({ content: '', category: 'Life', media: [], externalEmbed }).error, undefined);
-  assert.ok(schemas.post.validate({ content: '', category: 'Life', media: [], externalEmbed: { ...externalEmbed, platform: 'unknown' } }).error);
+  assert.equal(schemas.post.validate({ title: 'The original post is worth discussing', category: 'Life', media: [], externalEmbed }).error, undefined);
+  assert.ok(schemas.post.validate({ title: 'Broken attachment', category: 'Life', media: [], externalEmbed: { ...externalEmbed, platform: 'unknown' } }).error);
 });
 
 test('passwords use bcrypt with twelve salt rounds', async () => {

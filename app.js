@@ -108,6 +108,8 @@ const state = {
   adminError: '',
   analyticsDays: 28,
   adminBigPatch: { staff: [], audit: [], features: [] },
+  features: { battles: false },
+  featurePreview: '',
   notificationFilter: 'all'
   ,ideas: [], ideaMood: 'all',
   anonymousPosts: [],
@@ -641,13 +643,17 @@ async function hydrateSession() {
 
 function mapPost(post) {
   const id = String(post.id || post._id);
+  const legacyContent = String(post.content || '');
+  const structuredTitle = String(post.title || '').trim();
   return {
     id, databaseId: id,
     authorId: String(post.author?.id || post.author?._id || post.author || ''),
     authorHandle: post.author?.handle || '@member', authorName: post.author?.displayName || 'Callout member',
-    authorAvatarUrl: post.author?.avatarUrl || '', authorAutomated: Boolean(post.author?.isAutomated), authorPersona: post.author?.automationPersona || '', text: String(post.content || ''), category: post.category, media: Array.isArray(post.media) ? post.media : [],
+    authorAvatarUrl: post.author?.avatarUrl || '', authorAutomated: Boolean(post.author?.isAutomated), authorPersona: post.author?.automationPersona || '',
+    title: structuredTitle || legacyContent, description: structuredTitle ? String(post.description || '') : '', text: legacyContent, category: post.category, media: Array.isArray(post.media) ? post.media : [],
     poll: post.poll || null, topics: post.topics || [], contentWarning: post.contentWarning || '', embedUrl: post.embedUrl || '', externalEmbed: post.externalEmbed || null, reactionSet: post.reactionSet || 'classic', visibility: post.visibility || 'public',
-    alrightVotes: Number(post.alrightVotes || 0), cringeVotes: Number(post.cringeVotes || 0), impressions: Number(post.impressions || 0),
+    alrightVotes: post.alrightVotes == null ? null : Number(post.alrightVotes), cringeVotes: post.cringeVotes == null ? null : Number(post.cringeVotes), impressions: Number(post.impressions || 0),
+    resultsUnlocked: Boolean(post.resultsUnlocked), voteSummary: post.voteSummary || { locked: true, total: null, based: null, hotTake: null },
     userVote: post.userVote || null, emojiReactions: post.emojiReactions || {}, commentCount: Number(post.commentCount || 0), comments: Array.isArray(post.comments) ? post.comments : [],
     ttsAudio: Array.isArray(post.ttsAudio) ? post.ttsAudio : [], viralVideo: post.viralVideo || { milestones: [100, 500, 1000], reached: [], next: null },
     createdAt: new Date(post.createdAt || Date.now()).getTime(), publishing: Boolean(post.publishing),
@@ -667,6 +673,7 @@ async function hydratePosts() {
 
 async function hydrateApp() {
   await hydrateSession();
+  await hydrateFeatures();
   await Promise.all([hydratePosts(), hydrateGuilds(), hydrateLeaderboard(), hydrateTrending(), hydrateIdeas(), hydrateBigPatch(), hydrateAccountData()]);
   if (currentRoute() === 'take') await hydrateTake(activeTake());
   if (currentRoute() === 'guild') await hydrateGuildDetail();
@@ -677,11 +684,27 @@ async function hydrateApp() {
   renderRoute();
 }
 
+function applyFeatureVisibility() {
+  document.querySelectorAll('[data-feature-nav]').forEach(item => {
+    item.hidden = !Boolean(state.features?.[item.dataset.featureNav]);
+  });
+}
+
+async function hydrateFeatures() {
+  try {
+    const payload = await apiFetch('/api/features', {}, false);
+    state.features = { ...state.features, ...(payload.features || {}) };
+  } catch (error) {
+    console.error('Unable to load feature visibility:', error);
+  }
+  applyFeatureVisibility();
+}
+
 async function hydrateBigPatch() {
   const requests = [
     apiFetch('/api/posts/anonymous', {}, false),
     apiFetch('/api/topics', {}, false),
-    apiFetch('/api/battles', {}, false),
+    state.features.battles ? apiFetch('/api/battles', {}, false) : Promise.resolve({ battles: [] }),
     apiFetch('/api/about', {}, false)
   ];
   const [anonymous, topics, battles, about] = await Promise.allSettled(requests);
@@ -751,9 +774,10 @@ async function hydrateAdminControl() {
   if (!sessionUser?.isAdmin) { state.botAutomation = null; state.adminBigPatch = { staff: [], audit: [], features: [] }; state.adminError = ''; return; }
   try {
     state.adminError = '';
-    const [automation, staff, audit, features] = await Promise.all([apiFetch('/api/admin/bots'), apiFetch('/api/admin/staff'), apiFetch('/api/admin/audit'), apiFetch('/api/admin/features')]);
+    const [automation, staff, audit, features, battles] = await Promise.all([apiFetch('/api/admin/bots'), apiFetch('/api/admin/staff'), apiFetch('/api/admin/audit'), apiFetch('/api/admin/features'), apiFetch('/api/admin/battles')]);
     state.botAutomation = automation;
     state.adminBigPatch = { staff: staff.staff || [], audit: audit.audit || [], features: features.features || [] };
+    state.battles = battles.battles || [];
   } catch (error) { state.adminError = error.message; }
 }
 async function hydrateAccountData() {
@@ -867,21 +891,32 @@ function postStateMarkup(post, detail = false) {
 }
 
 function postTemplate(post, detail = false) {
-  const total = post.alrightVotes + post.cringeVotes;
-  const alrightPercent = total ? Math.round((post.alrightVotes / total) * 100) : 50;
+  const unlocked = Boolean(post.resultsUnlocked || post.userVote || post.authorId === currentUserId());
+  const basedVotes = unlocked ? Number(post.alrightVotes || 0) : 0;
+  const hotVotes = unlocked ? Number(post.cringeVotes || 0) : 0;
+  const total = basedVotes + hotVotes;
+  const alrightPercent = total ? Math.round((basedVotes / total) * 100) : 50;
   const cringePercent = 100 - alrightPercent;
   const isSaved = state.savedPostIds.includes(post.id);
   const commentCount = post.comments?.length ? countComments(post.comments) : Number(post.commentCount || 0);
+  const title = post.title || post.text || 'Untitled Take';
+  const description = post.description || '';
+  const category = escapeHtml(post.category || 'Callout');
+  const verdict = `<div class="feed-verdict ${unlocked ? 'is-unlocked' : 'is-locked'}" aria-label="${unlocked ? `${alrightPercent}% Based and ${cringePercent}% Hot Take` : 'Vote to reveal the community verdict'}">
+    <span class="feed-verdict-label based">${unlocked ? `${alrightPercent}% BASED` : 'BASED'}</span>
+    <div class="feed-verdict-track" style="--alright:${unlocked ? alrightPercent : 50}%"><i></i></div>
+    <span class="feed-verdict-label hot">${unlocked ? `${cringePercent}% HOT` : 'HOT TAKE'}</span>
+    ${unlocked ? '' : '<small>Vote to reveal the verdict</small>'}
+  </div>`;
   return `<article class="take-card ${detail ? 'take-card-detail' : 'take-card-feed'} ${post.anonymous && !post.anonymousRevealedAt ? 'anonymous-take' : ''} ${post.publishing ? 'take-publishing' : ''}" data-post-id="${post.id}">
     ${post.publishing ? '<div class="take-publishing-status"><span></span><strong>Publishing</strong><small>Your take is being securely saved in the background.</small></div>' : ''}
     <div class="take-top">
       ${postAvatarMarkup(post)}
-      <div class="take-content" ${detail ? '' : `data-open-take="${post.id}" role="link" tabindex="0" aria-label="Open take: ${escapeHtml(post.text)}"`}>
-        <div class="take-byline"><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong>${post.anonymous && !post.anonymousRevealedAt ? `<span class="anonymous-label">${escapeHtml(post.anonymousCode || post.authorName || 'SIGNAL')}</span>` : ''}${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>${timeLabel(post.createdAt || Date.now())} in ${escapeHtml(post.category)}</small></div>
-        ${post.contentWarning ? `<details class="content-warning"><summary>Content warning: ${escapeHtml(post.contentWarning)}</summary><h2>${formatPostContent(post.text)}</h2></details>` : `<h2>${formatPostContent(post.text)}</h2>`}
+      <div class="take-content" ${detail ? '' : `data-open-take="${post.id}" role="link" tabindex="0" aria-label="Open take: ${escapeHtml(title)}"`}>
+        <div class="take-byline"><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorName || 'Callout member')}</strong><span class="take-handle">${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? post.anonymousCode || 'SIGNAL' : post.authorHandle || '@member')}</span>${post.authorAutomated ? '<span class="automation-label" title="This account is operated automatically by Callout">AUTOMATED</span>' : ''}<small>· ${timeLabel(post.createdAt || Date.now())}</small><span class="take-category-pill">${category}</span></div>
+        ${post.contentWarning ? `<details class="content-warning"><summary>Content warning: ${escapeHtml(post.contentWarning)}</summary><h2>${formatPostContent(title)}</h2>${description ? `<p class="take-description ${detail ? '' : 'is-clamped'}">${formatPostContent(description)}</p>` : ''}</details>` : `<h2>${formatPostContent(title)}</h2>${description ? `<p class="take-description ${detail ? '' : 'is-clamped'}">${formatPostContent(description)}</p>${!detail && description.length > 220 ? `<button class="take-read-more" type="button" data-open-take="${post.id}">Read more</button>` : ''}` : ''}`}
         ${post.topics?.length ? `<div class="post-topics">${post.topics.map(topic => `<span>${escapeHtml(topic)}</span>`).join('')}</div>` : ''}
       </div>
-      <button class="icon-button save-button ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>
       <button class="icon-button" type="button" data-post-menu="${post.id}" aria-label="Post options"><svg><use href="#i-more"></use></svg></button>
       ${post.anonymousOwner && !post.anonymousRevealedAt ? `<button class="reveal-identity-button" type="button" data-reveal-post="${post.id}">Reveal identity</button>` : ''}
     </div>
@@ -889,18 +924,16 @@ function postTemplate(post, detail = false) {
     ${postMediaMarkup(post.media)}
     ${post.poll ? pollMarkup(post) : ''}
     ${post.externalEmbed ? externalEmbedMarkup(post.externalEmbed) : post.embedUrl ? `<a class="link-embed" href="${escapeHtml(post.embedUrl)}" target="_blank" rel="noopener noreferrer"><strong>Open attached link</strong><small>${escapeHtml(new URL(post.embedUrl).hostname)}</small></a>` : ''}
-    <div class="vote-row">
+    ${detail ? `<div class="vote-row ${unlocked ? '' : 'results-locked'}">
       <button class="vote-button alright based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright"><span class="vote-face">${calloutGlyph('based')}</span><strong>BASED</strong></button>
-      <b class="percent alright-percent">${alrightPercent}%</b>
-      <div class="vote-progress" style="--alright:${alrightPercent}%" role="progressbar" aria-label="${alrightPercent}% Based, ${cringePercent}% Hot Take" aria-valuenow="${alrightPercent}" aria-valuemin="0" aria-valuemax="100">
-        <div class="progress-divider"></div>
-      </div>
-      <b class="percent cringe-percent">${cringePercent}%</b>
+      <b class="percent alright-percent">${unlocked ? `${alrightPercent}%` : '—'}</b>
+      <div class="vote-progress" style="--alright:${unlocked ? alrightPercent : 50}%" role="progressbar" aria-label="${unlocked ? `${alrightPercent}% Based, ${cringePercent}% Hot Take` : 'Vote to reveal the result'}" aria-valuenow="${unlocked ? alrightPercent : 50}" aria-valuemin="0" aria-valuemax="100"><div class="progress-divider"></div></div>
+      <b class="percent cringe-percent">${unlocked ? `${cringePercent}%` : '—'}</b>
       <button class="vote-button cringe hot-take ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe"><span class="vote-face">${calloutGlyph('cringe')}</span><strong>HOT TAKE</strong></button>
-    </div>
+    </div>` : verdict}
     ${detail
-      ? `<div class="take-footer"><span>${total} ${total === 1 ? 'vote' : 'votes'}　•　${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}</span></div>`
-      : feedPostActions(post, commentCount, isSaved)}
+      ? `<div class="take-footer"><span>${unlocked ? `${total} ${total === 1 ? 'vote' : 'votes'}　•　` : ''}${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}</span></div>`
+      : feedPostActions(post, commentCount, isSaved, unlocked)}
   </article>`;
 }
 
@@ -1027,15 +1060,14 @@ function postEmojiPicker(post) {
   </div>`;
 }
 
-function feedPostActions(post, commentCount, isSaved) {
-  const totalVotes = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0);
+function feedPostActions(post, commentCount, isSaved, unlocked) {
   return `<div class="feed-post-actions">
-    <button class="feed-action feed-comment-action" type="button" data-open-take="${post.id}" aria-label="Open ${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}"><svg><use href="#i-message"></use></svg><span class="feed-count">${commentCount}</span><span>${commentCount === 1 ? 'Take' : 'Takes'}</span></button>
-    <span class="feed-vote-total" aria-label="${totalVotes} total votes"><span class="feed-count">${totalVotes}</span> ${totalVotes === 1 ? 'vote' : 'votes'}</span>
+    <button class="feed-action feed-comment-action" type="button" data-open-take="${post.id}" aria-label="Open ${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}"><svg><use href="#i-message"></use></svg><span class="feed-count">${commentCount}</span></button>
+    <button class="feed-action feed-vote-action based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright" aria-label="Vote Based">${calloutGlyph('based')}<span class="feed-count">${unlocked ? Number(post.alrightVotes || 0) : ''}</span></button>
+    <button class="feed-action feed-vote-action hot ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe" aria-label="Vote Hot Take">${calloutGlyph('cringe')}<span class="feed-count">${unlocked ? Number(post.cringeVotes || 0) : ''}</span></button>
     <span class="feed-action-spacer" aria-hidden="true"></span>
     <button class="feed-action feed-icon-action" type="button" data-feed-share="${post.id}" aria-label="Share take">↥</button>
     <button class="feed-action feed-icon-action ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>
-    <button class="feed-action feed-icon-action" type="button" data-post-menu="${post.id}" aria-label="Post options"><svg><use href="#i-more"></use></svg></button>
   </div>`;
 }
 
@@ -1249,7 +1281,7 @@ function guildDetailView() {
   let body = '';
   if (tab === 'public') body = `${guild.pinnedAnnouncement ? `<aside class="guild-announcement"><strong>Pinned announcement</strong><p>${escapeHtml(guild.pinnedAnnouncement)}</p></aside>` : ''}<section class="guild-public-grid"><article><span class="section-kicker">ABOUT</span><h2>${escapeHtml(guild.description || 'No description yet.')}</h2></article><article><span class="section-kicker">RULES</span><div class="formatted-copy">${escapeHtml(guild.rules || 'Guild rules have not been added yet.').replace(/\n/g, '<br>')}</div></article></section>`;
   else if (!guild.canViewContent) body = emptyState('🔒', 'Members-only area', 'This guild is public from the outside, but its feed and group chat are visible only to members.', `<button class="primary-action" type="button" data-toggle-guild="${guild.id}">Join guild</button>`);
-  else if (tab === 'feed') body = `${guild.permissions?.createPosts ? `<form class="guild-post-composer" id="guildPostForm"><textarea name="content" maxlength="2000" required placeholder="Share something with ${escapeHtml(guild.name)}…"></textarea><select name="category"><option>Life</option><option>Entertainment</option><option>Movies</option><option>Music</option><option>Games</option></select><button class="primary-action" type="submit">Post to guild</button></form>` : '<aside class="info-callout"><strong>Read-only role</strong><p>The owner must grant Contributor posting permission before you can publish here.</p></aside>'}${state.guildPosts.length ? feedMarkup(state.guildPosts) : emptyState('✦', 'No guild posts yet', 'Permitted contributors can start the first conversation here.')}`;
+  else if (tab === 'feed') body = `${guild.permissions?.createPosts ? `<form class="guild-post-composer" id="guildPostForm"><input name="title" maxlength="160" required placeholder="State your Take…" /><textarea name="description" maxlength="600" placeholder="Add optional context for ${escapeHtml(guild.name)}…"></textarea><select name="category"><option>Life</option><option>Entertainment</option><option>Movies</option><option>Music</option><option>Games</option></select><button class="primary-action" type="submit">Post to guild</button></form>` : '<aside class="info-callout"><strong>Read-only role</strong><p>The owner must grant Contributor posting permission before you can publish here.</p></aside>'}${state.guildPosts.length ? feedMarkup(state.guildPosts) : emptyState('✦', 'No guild posts yet', 'Permitted contributors can start the first conversation here.')}`;
   else if (tab === 'chat') body = guild.permissions?.chat ? `<section class="guild-chat"><div class="chat-stream">${state.guildMessages.length ? state.guildMessages.map(message => `<article><span class="avatar">${message.sender?.avatarUrl ? `<img src="${escapeHtml(message.sender.avatarUrl)}" alt="" />` : escapeHtml((message.sender?.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(message.sender?.displayName || 'Member')}</strong><small>${timeLabel(new Date(message.createdAt).getTime())}</small><p>${escapeHtml(message.text)}</p></div></article>`).join('') : '<div class="stage-empty"><h2>No messages yet</h2><p>Start the guild group chat.</p></div>'}</div><form id="guildChatForm"><textarea name="text" maxlength="2000" required placeholder="Message the guild…"></textarea><button class="primary-action" type="submit">Send</button></form></section>` : emptyState('🔒', 'Chat permission required', 'Ask a guild moderator to grant a role with chat access.');
   else if (tab === 'pinboard') body = pinboardView(guild);
   else if (tab === 'members') body = `<section class="guild-member-list guild-identity-cards">${state.guildMembers.map(member => { const identity = member.guildProfile || {}; return `<article style="--member-accent:${escapeHtml(identity.themeColor || guild.themeColor || '#7444e8')}"><span class="avatar avatar-frame-${escapeHtml(identity.avatarFrame || 'none')}">${identity.avatarUrl || member.user?.avatarUrl ? `<img src="${escapeHtml(identity.avatarUrl || member.user.avatarUrl)}" alt="" />` : escapeHtml((identity.nickname || member.user?.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(identity.nickname || member.user?.displayName || 'Member')}</strong><small><i class="status-dot ${escapeHtml(member.user?.status || 'invisible')}"></i> ${escapeHtml(member.roleKey)} · ${escapeHtml(member.status)}</small><span>${Number(member.contributionScore || 0)} contribution · ${Number(member.streakDays || 0)} day streak · ${Number(member.guildXp || 0)} XP</span></div>${guild.permissions?.manageMembers && member.roleKey !== 'owner' ? `<select data-member-role="${member.user.id}">${['moderator','contributor','chatter','viewer'].map(role => `<option value="${role}" ${member.roleKey === role ? 'selected' : ''}>${role}</option>`).join('')}</select>${member.status === 'pending' ? `<button data-approve-member="${member.user.id}">Approve</button>` : ''}` : ''}</article>`; }).join('') || '<p>No members yet.</p>'}</section>`;
@@ -1690,7 +1722,7 @@ function botAdminControlView() {
 }
 
 function adminPostConsoleView() {
-  return `<section class="admin-post-console"><header><div><span class="section-kicker">CONTENT CORRECTIONS</span><h2>Post control console</h2><p>Edit published wording, category, or visibility. Votes and views are genuine activity and cannot be manually changed.</p></div><span class="admin-lock">OWNER ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml(post.text.slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} real views · ${Number(post.alrightVotes + post.cringeVotes).toLocaleString()} account votes</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Post content<textarea name="content" maxlength="2000" required>${escapeHtml(post.text)}</textarea></label><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
+  return `<section class="admin-post-console"><header><div><span class="section-kicker">CONTENT CORRECTIONS</span><h2>Post control console</h2><p>Edit published wording, category, or visibility. Votes and views are genuine activity and cannot be manually changed.</p></div><span class="admin-lock">OWNER ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml((post.title || post.text).slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} real views</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Title<input name="title" maxlength="160" required value="${escapeHtml(post.title || post.text)}" /></label><label>Description<textarea name="description" maxlength="600">${escapeHtml(post.description || '')}</textarea></label><input name="content" type="hidden" value="${escapeHtml(post.text)}" /><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
 }
 
 function adminControlView() {
@@ -1701,27 +1733,29 @@ function adminControlView() {
   const section = location.hash.split('/')[1] || 'overview';
   const tabs = [
     ['overview', 'Overview'], ['people', 'People & Staff'], ['content', 'Content'],
-    ['anonymous', 'Anonymous'], ['topics', 'Topics'], ['guilds', 'Guilds'],
+    ['anonymous', 'Anonymous'], ['topics', 'Topics'], ['guilds', 'Guilds'], ['waiting', 'Waiting Features'],
     ['battles', 'Battles'], ['reports', 'Reports'], ['audit', 'Audit Log']
   ];
   const summary = [
     ['People', state.leaderboard.length], ['Posts', state.posts.length], ['Signals', state.anonymousPosts.length],
     ['Topics', state.topics.length], ['Guilds', state.guilds.length], ['Battles', state.battles.length]
   ];
-  const featureControls = `<section class="feature-kills admin-console-block"><header><strong>Beta flags & emergency kill switches</strong><small>Every owner change is saved server-side and audited.</small></header><div>${controls.features.map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} /></label>`).join('')}</div></section>`;
+  const featureControls = `<section class="feature-kills admin-console-block"><header><strong>Beta flags & emergency kill switches</strong><small>Technical controls remain separate from public feature visibility.</small></header><div>${controls.features.filter(feature => feature.key !== 'battles').map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} /></label>`).join('')}</div></section>`;
+  const battleFeature = controls.features.find(feature => feature.key === 'battles') || { key: 'battles', enabled: Boolean(state.features.battles) };
+  const waitingFeatures = `<section class="waiting-features admin-console-block"><header><div><span class="section-kicker">PUBLIC VISIBILITY</span><h2>Waiting Features</h2><p>Park a feature without deleting its code, records, or future potential.</p></div><span class="admin-lock">OWNER ONLY</span></header><div class="waiting-feature-list"><article class="${battleFeature.enabled ? 'is-visible' : 'is-waiting'}"><span class="waiting-feature-icon">⚔</span><div><span class="feature-status">${battleFeature.enabled ? 'VISIBLE' : 'WAITING'}</span><h3>Battles</h3><p>Tournament brackets, sealed submissions, finalist selection, and community voting remain safely stored.</p><small>${state.battles.length} existing battle${state.battles.length === 1 ? '' : 's'} preserved</small></div><div class="waiting-feature-actions"><button type="button" data-preview-feature="battles">Preview Battles</button><button class="primary-action" type="button" data-waiting-feature="battles" data-next-enabled="${battleFeature.enabled ? 'false' : 'true'}">${battleFeature.enabled ? 'Hide from site' : 'Show on site'}</button></div></article></div></section>`;
   const topicColumn = (title, kind, items) => `<section class="admin-topic-column"><header><span><i></i><strong>${title}</strong></span><b>${items.length}</b></header><div>${items.length ? items.map(topic => `<article style="--topic-accent:${escapeHtml(topic.accentColor || '#7444e8')}">${topic.artworkUrl ? `<img src="${escapeHtml(topic.artworkUrl)}" alt="" />` : '<span class="topic-fallback">◉</span>'}<div><small>${escapeHtml(kind)}</small><strong>${escapeHtml(topic.title)}</strong><p>${escapeHtml(topic.description || 'No description yet.')}</p><time>${new Date(topic.startsAt).toLocaleDateString()} – ${new Date(topic.endsAt).toLocaleDateString()}</time></div><button type="button" data-open-topic="${topic.id}">${kind === 'VAULTED' ? 'Open Vault' : 'View Topic'}</button></article>`).join('') : `<p class="mini-empty">No ${title.toLowerCase()}.</p>`}</div></section>`;
   const topicManager = `<section class="admin-topic-manager"><div class="admin-topic-board">${topicColumn('Live now', 'LIVE', state.topics.filter(topic => topic.state === 'live'))}${topicColumn('Scheduled', 'UPCOMING', state.topics.filter(topic => topic.state === 'scheduled'))}${topicColumn('Time Vaults', 'VAULTED', state.topics.filter(topic => topic.state === 'vaulted'))}</div><form class="admin-topic-editor" id="adminTopicForm"><span class="section-kicker">TOPIC EDITOR</span><h2>Create Limited-Time Topic</h2><label>Title<input name="title" maxlength="100" required placeholder="Topic title" /></label><label>Description<textarea name="description" maxlength="500" placeholder="What is this moment about?"></textarea></label><div><label>Start time<input name="startsAt" type="datetime-local" required /></label><label>End time<input name="endsAt" type="datetime-local" required /></label></div><button class="primary-action" type="submit">Schedule Topic</button></form></section>`;
   const staff = `<section class="admin-console-block"><header><div><span class="section-kicker">AUTHORIZED ACCOUNTS</span><h2>People & Staff</h2></div><span class="admin-lock">OWNER MANAGED</span></header><div class="admin-staff-list">${controls.staff.map(user => `<article><span class="avatar heat-frame ${escapeHtml(user.heatTier?.className || 'heat-fresh')}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.handle || user.email || '')}</small></div><b>${escapeHtml(user.staffRole)}</b></article>`).join('') || '<p>Only the configured owner account has console access.</p>'}</div><aside class="admin-security-note"><strong>Private console rule</strong><p>Analytics, automation, monetisation, and product controls are restricted to the email configured in <code>ADMIN_EMAILS</code>. Ordinary accounts never appear here.</p></aside></section>`;
   const anonymous = `<section class="admin-console-block"><header><div><span class="section-kicker">MODERATION</span><h2>Anonymous Signals</h2></div><b>${state.anonymousPosts.length}</b></header><p class="admin-section-copy">Public responses never contain the real author. Use “Inspect Signal” from a post menu only when moderation requires it; every lookup is permanently audited.</p><div class="admin-signal-grid">${state.anonymousPosts.map(post => `<article><span>${escapeHtml(post.anonymousCode || 'SIGNAL')}</span><strong>${escapeHtml(post.text.slice(0, 110))}</strong><button type="button" data-open-take="${post.id}">Open Signal</button></article>`).join('') || '<p>No anonymous posts require review.</p>'}</div></section>`;
   const guildAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">COMMUNITIES</span><h2>Guild oversight</h2></div><b>${state.guilds.length}</b></header><div class="admin-entity-grid">${state.guilds.map(guild => `<article><span class="avatar">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div><strong>${escapeHtml(guild.name)}</strong><small>${Number(guild.memberCount || 0)} members · ${escapeHtml(guild.privacy || 'public')}</small></div><button type="button" data-open-guild="${guild.id}">Open</button></article>`).join('') || '<p>No guilds yet.</p>'}</div></section>`;
-  const battleAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">TOURNAMENTS</span><h2>Battle control</h2></div><button class="primary-action" type="button" data-route-button="battles">Open public Battles</button></header><div class="admin-entity-grid">${state.battles.map(battle => `<article><span class="admin-entity-icon">⚔</span><div><strong>${escapeHtml(battle.title)}</strong><small>${battle.size}-entry · ${escapeHtml(battle.status)}</small></div><b>${escapeHtml(battle.status)}</b></article>`).join('') || '<p>No Battles have been created yet.</p>'}</div></section>`;
+  const battleAdmin = `<section class="admin-console-block"><header><div><span class="section-kicker">TOURNAMENTS</span><h2>Battle control</h2></div><button class="primary-action" type="button" data-preview-feature="battles">Preview Battles</button></header><div class="admin-entity-grid">${state.battles.map(battle => `<article><span class="admin-entity-icon">⚔</span><div><strong>${escapeHtml(battle.title)}</strong><small>${battle.size}-entry · ${escapeHtml(battle.status)}</small></div><b>${escapeHtml(battle.status)}</b></article>`).join('') || '<p>No Battles have been created yet.</p>'}</div></section>`;
   const audit = `<section class="admin-console-block"><header><div><span class="section-kicker">IMMUTABLE HISTORY</span><h2>Audit Log</h2></div><b>${controls.audit.length}</b></header><div class="admin-audit-table">${controls.audit.map(item => `<article><span>${escapeHtml(item.action)}</span><small>${escapeHtml(item.targetType)} · ${escapeHtml(item.targetId || 'platform')}</small><strong>${escapeHtml(item.actor?.displayName || 'Owner')}</strong><time>${new Date(item.createdAt).toLocaleString()}</time></article>`).join('') || '<p>No audited actions yet.</p>'}</div></section>`;
   const aboutEditor = `<form class="admin-console-block admin-about-editor" id="adminAboutForm"><span class="section-kicker">PROJECT WALL</span><h2>Publish official update</h2><input name="title" maxlength="120" required placeholder="Update title" /><textarea name="body" maxlength="4000" required placeholder="Truthful project update"></textarea><div><select name="label"><option value="building">Building</option><option value="shipped">Shipped</option><option value="milestone">Milestone</option><option value="coming_soon">Coming soon</option></select><label><input name="pinned" type="checkbox" /> Pin update</label></div><button class="primary-action" type="submit">Publish update</button></form>`;
   const reports = `<section class="admin-console-block">${emptyState('⚑', 'No open reports', 'User reports and their moderation status will appear here without exposing unrelated private account data.')}</section>`;
   const views = {
     overview: `<section class="admin-overview-grid">${summary.map(([label, value]) => `<article><small>${label}</small><strong>${Number(value).toLocaleString()}</strong></article>`).join('')}</section>${featureControls}${botAdminControlView()}`,
     people: staff, content: `${adminPostConsoleView()}${aboutEditor}`, anonymous, topics: topicManager,
-    guilds: guildAdmin, battles: battleAdmin, reports, audit
+    guilds: guildAdmin, waiting: waitingFeatures, battles: battleAdmin, reports, audit
   };
   return `<section class="admin-console-shell"><header><span class="section-kicker">ADMIN CONSOLE · OWNER ONLY</span><h1>${escapeHtml(tabs.find(([key]) => key === section)?.[1] || 'Overview')}</h1><p>Private Callout operations, kept separate from website analytics.</p></header><nav class="admin-console-tabs">${tabs.map(([key, label]) => `<button type="button" class="${section === key ? 'active' : ''}" data-admin-section="${key}">${label}</button>`).join('')}</nav><div class="admin-console-view">${views[section] || views.overview}</div></section>`;
 }
@@ -1753,7 +1787,7 @@ function analyticsView() {
     : `<section class="adsense-analytics adsense-connect"><header><div><span class="section-kicker">MONETISATION</span><h2>AdSense earnings</h2></div><span class="adsense-status pending">${escapeHtml(siteStatus)}</span></header><div><strong>${adsense.error ? 'AdSense needs to be reconnected' : 'Google is reviewing Callout'}</strong><p>${adsense.error ? escapeHtml(adsense.error) : 'Paid ads cannot appear until Google changes the site from Getting ready to Ready. Connect the read-only reporting API now so earnings will appear here automatically after approval.'}</p><a class="primary-action" href="/api/admin/reporting/connect">Connect AdSense reporting</a></div></section>`;
   const automation = state.botAutomation || { bots: [], intervalMinutes: 360 };
   const botsSection = `<section class="bot-admin"><header><div><span class="section-kicker">COMMUNITY AUTOMATION</span><h2>Automated hosts</h2><p>Clearly labelled accounts using original curated opinions. One action at most every ${Number(automation.intervalMinutes)} minutes.</p></div><button class="primary-action" type="button" data-run-bots>Run one action</button></header><div>${automation.bots.map(bot => `<article><span class="avatar">${escapeHtml((bot.displayName || 'B').charAt(0))}</span><div><strong>${escapeHtml(bot.displayName)}</strong><small>${escapeHtml(bot.handle)} · ${escapeHtml(bot.persona || '')}</small><span>${bot.lastRunAt ? `Last active ${timeLabel(new Date(bot.lastRunAt).getTime())}` : 'Ready for first activity'} · ${Number(bot.postCount || 0)} posts</span></div><label class="bot-toggle"><input type="checkbox" data-toggle-bot="${bot.id}" ${bot.enabled ? 'checked' : ''} /><i></i><span>${bot.enabled ? 'Active' : 'Paused'}</span></label></article>`).join('') || '<p>Automated accounts are being initialized.</p>'}</div></section>`;
-  const postConsole = `<section class="admin-post-console"><header><div><span class="section-kicker">ADMIN CORRECTIONS</span><h2>Post control console</h2><p>Edit published post copy and public counters. Changes are protected by server-side administrator checks and retain real user vote records.</p></div><span class="admin-lock">ADMIN ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml(post.text.slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} views · ${Number(post.alrightVotes).toLocaleString()} Based · ${Number(post.cringeVotes).toLocaleString()} Hot Take</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Post content<textarea name="content" maxlength="2000" required>${escapeHtml(post.text)}</textarea></label><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label><label>Views<input name="impressions" type="number" min="0" max="1000000000" value="${Number(post.impressions || 0)}" required /></label><label>Based votes<input name="basedVotes" type="number" min="0" max="1000000000" value="${Number(post.alrightVotes || 0)}" required /></label><label>Hot Take votes<input name="cringeVotes" type="number" min="0" max="1000000000" value="${Number(post.cringeVotes || 0)}" required /></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
+  const postConsole = `<section class="admin-post-console"><header><div><span class="section-kicker">ADMIN CORRECTIONS</span><h2>Post control console</h2><p>Edit published titles, descriptions, category, or visibility. Genuine activity totals cannot be manually changed.</p></div><span class="admin-lock">ADMIN ONLY</span></header><div>${state.posts.map(post => `<details><summary><span>${postAvatarMarkup(post)}</span><span><strong>${escapeHtml((post.title || post.text).slice(0, 85) || 'Media post')}</strong><small>${escapeHtml(post.authorHandle)} · ${Number(post.impressions).toLocaleString()} views</small></span><b>EDIT</b></summary><form data-admin-post-form="${post.id}"><label>Title<input name="title" maxlength="160" required value="${escapeHtml(post.title || post.text)}" /></label><label>Description<textarea name="description" maxlength="600">${escapeHtml(post.description || '')}</textarea></label><input name="content" type="hidden" value="${escapeHtml(post.text)}" /><div class="admin-post-fields"><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(value => `<option ${post.category === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Visibility<select name="visibility"><option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Public</option><option value="friends" ${post.visibility === 'friends' ? 'selected' : ''}>Friends</option></select></label></div><div class="admin-post-actions"><button type="button" data-open-admin-post="${post.id}">Open post</button><button class="primary-action" type="submit">Save corrections</button></div></form></details>`).join('') || '<p class="admin-console-empty">No published posts are available.</p>'}</div></section>`;
   return `${pageHeader('PRIVATE DASHBOARD', 'Analytics', 'Traffic, acquisition, and performance data from Google Analytics and AdSense.', `<button class="quiet-action" type="button" data-refresh-analytics>Refresh</button>`)}
     <div class="analytics-toolbar"><div class="analytics-ranges">${[7,28,90].map(days => `<button type="button" data-analytics-days="${days}" class="${state.analyticsDays === days ? 'active' : ''}">${days} days</button>`).join('')}</div><span><i></i><strong>${Number(analytics.realtime?.activeUsers || 0)}</strong> active now</span></div>
     <section class="analytics-cards">${cards.map(([label,value,note]) => `<article><small>${label}</small><strong>${typeof value === 'number' ? value.toLocaleString() : value}</strong><span>${note}</span></article>`).join('')}</section>
@@ -1772,11 +1806,19 @@ function authView() {
 
 const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, heat: heatLevelView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
 
+function featureUnavailableView(name) {
+  return `<section class="feature-unavailable"><span class="feature-unavailable-mark">◇</span><span class="section-kicker">CALLOUT ORIGINALS</span><h1>${escapeHtml(name)} is taking a break</h1><p>This feature is not available right now. Its existing content is safe, and it may return in the future.</p><button class="primary-action" type="button" data-back-feed>Back to the feed</button></section>`;
+}
+
 function renderRoute() {
   const route = currentRoute();
+  const previewingHiddenFeature = Boolean(
+    sessionUser?.isAdmin && state.featurePreview === route && !state.features?.[route]
+  );
+  const featureBlocked = route === 'battles' && !state.features.battles && !previewingHiddenFeature;
   document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.route === route || (['customize','accessibility'].includes(route) && item.dataset.route === 'settings') || (route === 'take' && item.dataset.route === 'home') || (route === 'guild' && item.dataset.route === 'guilds') || (route === 'heat' && item.dataset.route === 'profile')));
   document.querySelector('#sidebar').classList.remove('open');
-  mainContent.innerHTML = viewRenderers[route]();
+  mainContent.innerHTML = featureBlocked ? featureUnavailableView('Battles') : `${previewingHiddenFeature ? '<aside class="feature-preview-banner"><strong>OWNER PREVIEW</strong><span>Battles is hidden from the public website.</span><button type="button" data-exit-feature-preview>Exit preview</button></aside>' : ''}${viewRenderers[route]()}`;
   mainContent.dataset.route = route;
   document.body.dataset.route = route;
   renderSavedBoardsRail(route);
@@ -2059,6 +2101,18 @@ function bindViewInteractions(route) {
       await hydrateAdminControl(); renderRoute(); showToast(`${input.dataset.featureControl} ${input.checked ? 'enabled' : 'disabled'}.`);
     } catch (error) { input.checked = !input.checked; showToast(error.message); }
   }));
+  document.querySelectorAll('[data-waiting-feature]').forEach(button => button.addEventListener('click', async () => {
+    const enabled = button.dataset.nextEnabled === 'true';
+    button.disabled = true;
+    try {
+      await apiFetch(`/api/admin/features/${encodeURIComponent(button.dataset.waitingFeature)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
+      await Promise.all([hydrateFeatures(), hydrateAdminControl()]);
+      if (enabled) await hydrateBigPatch();
+      renderRoute(); showToast(enabled ? 'Battles is now visible.' : 'Battles moved to Waiting Features.');
+    } catch (error) { button.disabled = false; showToast(error.message); }
+  }));
+  document.querySelectorAll('[data-preview-feature="battles"]').forEach(button => button.addEventListener('click', () => { state.featurePreview = 'battles'; navigate('battles'); }));
+  document.querySelector('[data-exit-feature-preview]')?.addEventListener('click', () => { state.featurePreview = ''; navigate('admin/waiting'); });
   document.querySelectorAll('[data-open-admin-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openAdminPost}`)));
   document.querySelectorAll('[data-layout-move]').forEach(button => button.addEventListener('click', () => {
     const order = [...document.querySelectorAll('[data-layout-item]')].map(item => item.dataset.layoutItem);
@@ -2148,9 +2202,10 @@ function postTextError(text) {
 
 async function createGuildFeedPost(event) {
   event.preventDefault();
-  const content = sanitizeInput(event.currentTarget.elements.content.value);
-  const error = postTextError(content); if (error) return showToast(error);
-  try { await apiFetch(`/api/guilds/${state.activeGuild.id}/posts`, { method: 'POST', body: JSON.stringify({ content, category: event.currentTarget.elements.category.value, media: [] }) }); trackEvent('create_post', { audience: 'guild' }); await Promise.all([hydrateGuildDetail(), hydrateSession()]); renderRoute(); showToast('Posted to the guild.'); }
+  const title = sanitizeInput(event.currentTarget.elements.title.value);
+  const description = sanitizeInput(event.currentTarget.elements.description.value);
+  const error = postTextError(`${title} ${description}`); if (error) return showToast(error);
+  try { await apiFetch(`/api/guilds/${state.activeGuild.id}/posts`, { method: 'POST', body: JSON.stringify({ title, description, content: [title, description].filter(Boolean).join('\n\n'), category: event.currentTarget.elements.category.value, media: [] }) }); trackEvent('create_post', { audience: 'guild' }); await Promise.all([hydrateGuildDetail(), hydrateSession()]); renderRoute(); showToast('Posted to the guild.'); }
   catch (requestError) { showToast(requestError.message); }
 }
 
@@ -2921,14 +2976,15 @@ async function downloadTakesImage(post, format, backgroundMode, canvas) {
 }
 
 function openEditPost(post) {
-  showActionDialog(actionDialogShell('EDIT TAKE', 'Refine your take', `<form id="editPostForm"><label>Post content<textarea name="content" maxlength="180" required>${escapeHtml(post.text)}</textarea></label><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(category => `<option ${post.category === category ? 'selected' : ''}>${category}</option>`).join('')}</select></label><button class="primary-action" type="submit">Save changes</button></form>`));
+  showActionDialog(actionDialogShell('EDIT TAKE', 'Refine your take', `<form id="editPostForm"><label>Title<input name="title" maxlength="160" required value="${escapeHtml(post.title || post.text)}" /></label><label>Description<textarea name="description" maxlength="600">${escapeHtml(post.description || '')}</textarea></label><label>Category<select name="category">${['Movies','Music','Entertainment','Games','Life'].map(category => `<option ${post.category === category ? 'selected' : ''}>${category}</option>`).join('')}</select></label><button class="primary-action" type="submit">Save changes</button></form>`));
   document.querySelector('#editPostForm').addEventListener('submit', async event => {
     event.preventDefault();
-    const content = sanitizeInput(event.currentTarget.elements.content.value);
+    const title = sanitizeInput(event.currentTarget.elements.title.value);
+    const description = sanitizeInput(event.currentTarget.elements.description.value);
     const category = event.currentTarget.elements.category.value;
-    if (!content) return;
-    const validationError = postTextError(content); if (validationError) return showToast(validationError);
-    try { if (post.databaseId && sessionUser) await apiFetch(`/api/posts/${post.databaseId}`, { method: 'PATCH', body: JSON.stringify({ content, category }) }); post.text = content.toUpperCase(); post.category = category; persist(); closeActionDialog(); renderRoute(); showToast('Post updated.'); }
+    if (!title) return;
+    const validationError = postTextError(`${title} ${description}`); if (validationError) return showToast(validationError);
+    try { if (post.databaseId && sessionUser) await apiFetch(`/api/posts/${post.databaseId}`, { method: 'PATCH', body: JSON.stringify({ title, description, content: [title, description].filter(Boolean).join('\n\n'), category }) }); Object.assign(post, { title, description, text: [title, description].filter(Boolean).join('\n\n'), category }); persist(); closeActionDialog(); renderRoute(); showToast('Post updated.'); }
     catch (error) { showToast(error.message); }
   });
 }
@@ -3172,7 +3228,7 @@ async function saveAdminPost(event) {
   try {
     const payload = await apiFetch(`/api/admin/posts/${form.dataset.adminPostForm}`, {
       method: 'PATCH',
-      body: JSON.stringify({ content: sanitizeInput(values.content), category: values.category, visibility: values.visibility })
+      body: JSON.stringify({ title: sanitizeInput(values.title || values.content), description: sanitizeInput(values.description || ''), content: sanitizeInput(values.content || [values.title, values.description].filter(Boolean).join('\n\n')), category: values.category, visibility: values.visibility })
     });
     const updated = mapPost(payload.post);
     const index = state.posts.findIndex(post => post.id === updated.id);
@@ -3353,10 +3409,7 @@ async function handleTakeMedia(event) {
 }
 
 function composerHasPublishableContent() {
-  const text = document.querySelector('#takeText')?.value.trim();
-  const pollBuilder = document.querySelector('#pollBuilder');
-  const pollQuestion = document.querySelector('#pollQuestion')?.value.trim();
-  return Boolean(text || pendingMedia.length || pendingExternalEmbed || (pollBuilder && !pollBuilder.hidden && pollQuestion));
+  return Boolean(document.querySelector('#takeTitle')?.value.trim());
 }
 
 function updateComposerSubmitState() {
@@ -3369,12 +3422,16 @@ function updateComposerSubmitState() {
 function updateComposerCharacterCount(length = document.querySelector('#takeText')?.value.length || 0) {
   const counter = document.querySelector('#charCount');
   if (!counter) return;
-  counter.textContent = `${length} / 2000`;
-  counter.classList.toggle('near-limit', length >= 1800 && length < 2000);
-  counter.classList.toggle('at-limit', length >= 2000);
+  counter.textContent = `${length} / 600`;
+  counter.classList.toggle('near-limit', length >= 540 && length < 600);
+  counter.classList.toggle('at-limit', length >= 600);
+  const titleLength = document.querySelector('#takeTitle')?.value.length || 0;
+  const titleCounter = document.querySelector('#titleCount');
+  if (titleCounter) titleCounter.textContent = `${titleLength} / 160`;
 }
 
 function updateComposerPreview() {
+  const title = document.querySelector('#takeTitle')?.value.trim() || '';
   const text = document.querySelector('#takeText')?.value.trim() || '';
   const category = document.querySelector('#takeCategory')?.value || 'Movies';
   const anonymous = Boolean(document.querySelector('#takeAnonymous')?.checked);
@@ -3385,7 +3442,9 @@ function updateComposerPreview() {
   document.querySelector('#previewName').textContent = anonymous ? 'Anonymous' : profile.displayName || 'Callout member';
   document.querySelector('#previewCategory').textContent = anonymous ? `SIGNAL 7A · ${category} · now` : `${category} · now`;
   document.querySelector('#previewAnonTag').hidden = !anonymous;
-  document.querySelector('#previewContent').textContent = text || 'Your take will appear here as you type.';
+  document.querySelector('#previewTitle').textContent = title || 'Your title will appear here.';
+  document.querySelector('#previewContent').textContent = text;
+  document.querySelector('#previewContent').hidden = !text;
   const avatar = document.querySelector('#previewAvatar');
   avatar.classList.toggle('is-anonymous', anonymous);
   avatar.innerHTML = anonymous ? '◒' : profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="" />` : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
@@ -3485,6 +3544,7 @@ document.querySelector('#addGifUrl').addEventListener('click', () => { const inp
 document.querySelectorAll('#postEmojiTray button').forEach(button => button.addEventListener('click', () => { const input = document.querySelector('#takeText'); input.value += button.textContent; input.dispatchEvent(new Event('input')); input.focus(); }));
 document.querySelector('[data-close-guild]').addEventListener('click', () => guildComposer.close());
 document.querySelector('#takeText').addEventListener('input', event => { updateComposerCharacterCount(event.target.value.length); updateComposerPreview(); });
+document.querySelector('#takeTitle').addEventListener('input', updateComposerPreview);
 document.querySelector('#takeCategory').addEventListener('change', updateComposerPreview);
 document.querySelector('#takeAudience').addEventListener('change', updateComposerPreview);
 document.querySelector('#takeAnonymous').addEventListener('change', updateComposerPreview);
@@ -3501,20 +3561,21 @@ async function submitComposer(draft = false) {
   if (composerSubmissionInFlight) return;
   if (!sessionUser) { composer.close(); navigate('auth'); return showToast('Sign in to publish a take.'); }
   const input = document.querySelector('#takeText');
-  const text = sanitizeInput(input.value);
+  const title = sanitizeInput(document.querySelector('#takeTitle').value);
+  const description = sanitizeInput(input.value);
   const pollBuilder = document.querySelector('#pollBuilder');
   const pollOptions = [...document.querySelectorAll('#pollOptions input')].map(option => sanitizeInput(option.value)).filter(Boolean);
   const poll = pollBuilder.hidden ? null : { question: sanitizeInput(document.querySelector('#pollQuestion').value), options: pollOptions.map(option => ({ text: option })), closesAt: null };
-  if (!draft && !text && !pendingMedia.length && !poll && !pendingExternalEmbed) return showToast('Add text, media, or an attached post first.');
+  if (!draft && !title) return showToast('Add a title before publishing.');
   if (poll && (!poll.question || pollOptions.length < 2)) return showToast('A poll needs a question and at least 2 options.');
-  const validationError = text ? postTextError(text) : ''; if (validationError) return showToast(validationError);
+  const validationError = postTextError([title, description].filter(Boolean).join(' ')); if (validationError) return showToast(validationError);
   const category = document.querySelector('#takeCategory').value;
   const gifUrl = document.querySelector('#gifUrlInput').value.trim();
   const media = gifUrl ? [...pendingMedia, { type: 'gif', url: gifUrl, alt: 'GIF attachment', duration: 0, aspectRatio: 1 }] : [...pendingMedia];
   if (media.length > 5) return showToast('A take can contain up to 5 media items.');
   const scheduledValue = document.querySelector('#takeSchedule').value;
   const payload = {
-    clientRequestId: composerRequestId || (composerRequestId = crypto.randomUUID()), content: text, category, media, draft, poll, contentType: poll ? 'poll' : media[0]?.type || 'text',
+    clientRequestId: composerRequestId || (composerRequestId = crypto.randomUUID()), title, description, content: [title, description].filter(Boolean).join('\n\n'), category, media, draft, poll, contentType: poll ? 'poll' : media[0]?.type || 'text',
     visibility: document.querySelector('#takeAudience').value,
     anonymous: Boolean(document.querySelector('#takeAnonymous')?.checked),
     topic: document.querySelector('#takeLiveTopic')?.value || null,
@@ -3565,6 +3626,7 @@ async function submitComposer(draft = false) {
   if (!instantPublish) await finishPublishing(true, draft ? 'Draft saved.' : scheduledValue ? 'Take scheduled.' : 'Your take is live.');
   persist();
   input.value = '';
+  document.querySelector('#takeTitle').value = '';
   pendingMedia = []; pendingExternalEmbed = null; renderMediaPreview(); document.querySelector('#gifUrlInput').value = ''; document.querySelector('#gifUrlInput').hidden = true; document.querySelector('#externalPostUrl').value = ''; document.querySelector('#externalAttachComposer').hidden = true;
   updateComposerCharacterCount(0);
   document.querySelector('#composerForm').reset(); document.querySelector('#pollBuilder').hidden = true;

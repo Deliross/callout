@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260828-balanced-shell" />
+    <link rel="stylesheet" href="styles.css?v=20260904-feed-waiting" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -83,7 +83,7 @@
 
           <section class="nav-section" aria-labelledby="nav-originals-label">
             <h2 id="nav-originals-label">Originals</h2>
-            <a class="nav-item" href="#battles" data-route="battles"><svg><use href="#i-battles"></use></svg><span>Battles</span></a>
+            <a class="nav-item" href="#battles" data-route="battles" data-feature-nav="battles" hidden><svg><use href="#i-battles"></use></svg><span>Battles</span></a>
             <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
           </section>
 
@@ -151,10 +151,12 @@
         <div class="composer-head"><div><span class="brand-mini">CALLOUT COMPOSER</span><h2>Post a Take</h2><p>Put your opinion on the line.</p></div><button type="button" data-close-composer aria-label="Close">×</button></div>
         <div class="composer-workspace">
           <section class="composer-create-column" aria-label="Create your Take">
-            <label class="composer-field-label" for="takeText">Your Take</label>
+            <label class="composer-field-label" for="takeTitle">Take title <span id="titleCount" aria-live="polite">0 / 160</span></label>
+            <input class="composer-title-input" id="takeTitle" maxlength="160" required placeholder="State the opinion people will judge..." />
+            <label class="composer-field-label composer-description-label" for="takeText">Description <small>Optional</small></label>
             <div class="rich-toolbar" aria-label="Text formatting"><button type="button" data-format="bold"><b>B</b></button><button type="button" data-format="italic"><i>I</i></button><button type="button" data-format="spoiler">Spoiler</button><button type="button" id="togglePoll">Poll</button></div>
-            <textarea id="takeText" maxlength="2000" placeholder="Say something worth judging..."></textarea>
-            <div class="composer-meta"><label><span>Category</span><select id="takeCategory" aria-label="Category"><option>Movies</option><option>Music</option><option>Entertainment</option><option>Games</option><option>Life</option></select></label><span id="charCount" aria-live="polite">0 / 2000</span></div>
+            <textarea id="takeText" maxlength="600" placeholder="Add context, reasoning, or details..."></textarea>
+            <div class="composer-meta"><label><span>Category</span><select id="takeCategory" aria-label="Category"><option>Movies</option><option>Music</option><option>Entertainment</option><option>Games</option><option>Life</option></select></label><span id="charCount" aria-live="polite">0 / 600</span></div>
             <section class="composer-drop-zone" id="composerDropZone" tabindex="0" aria-label="Drop images, GIFs, or short videos here">
               <div class="drop-zone-copy"><span class="drop-zone-icon" aria-hidden="true">▧</span><strong>Drop media here</strong><span>Images, GIFs, or square video</span></div>
               <div class="composer-tool-groups">
@@ -173,7 +175,7 @@
           <aside class="composer-preview-column">
             <section class="composer-live-preview" aria-label="Live post preview">
               <header><strong>LIVE PREVIEW</strong><div class="composer-identity-controls"><label class="preview-audience"><span class="sr-only">Audience</span><select id="takeAudience" aria-label="Audience"><option value="public">Public</option><option value="friends">Friends</option></select></label><label class="anonymous-compose-toggle"><input id="takeAnonymous" type="checkbox" /><span class="anonymous-toggle-track" aria-hidden="true"><i></i></span><b>Anonymous</b></label></div></header>
-              <article><div class="preview-avatar" id="previewAvatar">C</div><div><p><strong id="previewName">Callout member</strong><span class="preview-anon-tag" id="previewAnonTag" hidden>ANON</span><small id="previewCategory">Movies · now</small></p><div class="preview-content" id="previewContent">Your take will appear here as you type.</div><div class="preview-media" id="previewMedia" hidden></div><div id="previewExternalEmbed" hidden></div></div></article>
+              <article><div class="preview-avatar" id="previewAvatar">C</div><div><p><strong id="previewName">Callout member</strong><span class="preview-anon-tag" id="previewAnonTag" hidden>ANON</span><small id="previewCategory">Movies · now</small></p><strong class="preview-title" id="previewTitle">Your title will appear here.</strong><div class="preview-content" id="previewContent" hidden></div><div class="preview-media" id="previewMedia" hidden></div><div id="previewExternalEmbed" hidden></div></div></article>
               <p class="composer-anonymous-note" id="composerAnonymousNote">Anonymous hides your public identity. Callout can still moderate the post.</p>
             </section>
           </aside>
@@ -204,6 +206,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260828-balanced-shell"></script>
+    <script src="app.js?v=20260904-feed-waiting"></script>
   </body>
 </html>

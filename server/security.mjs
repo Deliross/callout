@@ -70,6 +70,16 @@ const postText = plain(2000).custom((value, helpers) => {
   if (/(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|gg|me|tv)(?:\/|\b))/i.test(value)) return helpers.message({ custom: 'Links are not allowed in post text.' });
   return value;
 }, 'post content rules');
+const postTitle = plain(160).custom((value, helpers) => {
+  if (value.includes('#')) return helpers.message({ custom: 'Hashtags are not allowed in post titles.' });
+  if (/(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|gg|me|tv)(?:\/|\b))/i.test(value)) return helpers.message({ custom: 'Links are not allowed in post titles.' });
+  return value;
+}, 'post title rules');
+const postDescription = plain(600).custom((value, helpers) => {
+  if (value.includes('#')) return helpers.message({ custom: 'Hashtags are not allowed in post descriptions.' });
+  if (/(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|gg|me|tv)(?:\/|\b))/i.test(value)) return helpers.message({ custom: 'Links are not allowed in post descriptions.' });
+  return value;
+}, 'post description rules');
 
 export const schemas = {
   signup: Joi.object({
@@ -127,6 +137,8 @@ export const schemas = {
   }),
   post: Joi.object({
     clientRequestId: Joi.string().guid({ version: ['uuidv4'] }).allow('').default(''),
+    title: postTitle.allow('').default(''),
+    description: postDescription.allow('').default(''),
     content: postText.allow('').default(''),
     category: Joi.string().valid('Movies', 'Music', 'Entertainment', 'Games', 'Life').required(),
     contentType: Joi.string().valid('text', 'image', 'video', 'gif', 'poll').default('text'),
@@ -147,7 +159,7 @@ export const schemas = {
     }).allow(null).default(null),
     media: mediaCollection.default([])
   }).custom((value, helpers) => {
-    if (!value.draft && !value.content && !value.media.length && !value.poll && !value.externalEmbed) return helpers.message({ custom: 'Published posts need text, media, an attachment, or a poll.' });
+    if (!value.draft && !value.title) return helpers.message({ custom: 'Published posts need a title.' });
     if (value.contentType === 'poll' && !value.poll) return helpers.message({ custom: 'Poll posts require a question and at least two options.' });
     return value;
   }, 'composer requirements'),
@@ -164,6 +176,8 @@ export const schemas = {
   embedPreview: Joi.object({ url: Joi.string().uri({ scheme: ['https'] }).max(2048).required() }),
   featureIdea: Joi.object({ text: plain(400).min(8).required(), mood: Joi.string().valid('electric', 'chaotic', 'soft', 'dark', 'wild').required() }),
   adminPost: Joi.object({
+    title: postTitle.required(),
+    description: postDescription.allow('').default(''),
     content: postText.allow('').required(),
     category: Joi.string().valid('Movies', 'Music', 'Entertainment', 'Games', 'Life').required(),
     visibility: Joi.string().valid('public', 'friends').required()

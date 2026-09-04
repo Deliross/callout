@@ -53,6 +53,8 @@ const postSchema = new mongoose.Schema({
   anonymous: { type: Boolean, default: false, index: true },
   anonymousCode: { type: String, default: '', maxlength: 24 },
   anonymousRevealedAt: { type: Date, default: null },
+  title: { type: String, default: '', maxlength: 160 },
+  description: { type: String, default: '', maxlength: 600 },
   content: { type: String, default: '', maxlength: 2000 },
   category: { type: String, enum: ['Movies', 'Music', 'Entertainment', 'Games', 'Life'], required: true },
   contentType: { type: String, enum: ['text', 'image', 'video', 'gif', 'poll'], default: 'text' },

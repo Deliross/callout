@@ -28,6 +28,6 @@ test('sidebar navigation is grouped into the approved sections', () => {
     assert.match(html, new RegExp(`>${section}<`));
   }
   assert.match(html, /data-route="notifications"/);
-  assert.match(html, /styles\.css\?v=20260828-balanced-shell/);
-  assert.match(html, /app\.js\?v=20260828-balanced-shell/);
+  assert.match(html, /styles\.css\?v=20260904-feed-waiting/);
+  assert.match(html, /app\.js\?v=20260904-feed-waiting/);
 });

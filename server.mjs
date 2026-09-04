@@ -249,6 +249,9 @@ app.get('/api/admin/audit', requireAuth, requireAdmin, async (_req, res, next) =
 app.get('/api/admin/features', requireAuth, requireAdmin, async (_req, res, next) => {
   try { res.json({ features: await listFeatureControls() }); } catch (error) { next(error); }
 });
+app.get('/api/admin/battles', requireAuth, requireAdmin, async (req, res, next) => {
+  try { res.json({ battles: await listBattles(req.userId || '') }); } catch (error) { next(error); }
+});
 app.patch('/api/admin/features/:key', requireAuth, requireOwner, validate(schemas.featureControl), async (req, res, next) => {
   try { const feature = await setFeatureControl(req.userId, req.params.key, req.body.enabled); if (!feature) return res.status(404).json({ error: 'Feature not found.' }); res.json({ feature }); } catch (error) { next(error); }
 });
