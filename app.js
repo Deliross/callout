@@ -902,11 +902,6 @@ function postTemplate(post, detail = false) {
   const title = post.title || post.text || 'Untitled Take';
   const description = post.description || '';
   const category = escapeHtml(post.category || 'Callout');
-  const verdict = `<div class="feed-verdict ${unlocked ? 'is-unlocked' : 'is-locked'}" aria-label="${unlocked ? `${alrightPercent}% Based and ${cringePercent}% Hot Take` : 'Vote to reveal the community verdict'}">
-    <span class="feed-verdict-label based"><b>${unlocked ? `${alrightPercent}%` : '—'}</b><small>BASED</small></span>
-    <div class="feed-verdict-track" style="--alright:${unlocked ? alrightPercent : 50}%"><i></i>${unlocked ? '' : '<span>VOTE TO REVEAL</span>'}</div>
-    <span class="feed-verdict-label hot"><b>${unlocked ? `${cringePercent}%` : '—'}</b><small>HOT TAKE</small></span>
-  </div>`;
   return `<article class="take-card ${detail ? 'take-card-detail' : 'take-card-feed'} ${post.anonymous && !post.anonymousRevealedAt ? 'anonymous-take' : ''} ${post.publishing ? 'take-publishing' : ''}" data-post-id="${post.id}">
     ${post.publishing ? '<div class="take-publishing-status"><span></span><strong>Publishing</strong><small>Your take is being securely saved in the background.</small></div>' : ''}
     <div class="take-top">
@@ -929,10 +924,10 @@ function postTemplate(post, detail = false) {
       <div class="vote-progress" style="--alright:${unlocked ? alrightPercent : 50}%" role="progressbar" aria-label="${unlocked ? `${alrightPercent}% Based, ${cringePercent}% Hot Take` : 'Vote to reveal the result'}" aria-valuenow="${unlocked ? alrightPercent : 50}" aria-valuemin="0" aria-valuemax="100"><div class="progress-divider"></div></div>
       <b class="percent cringe-percent">${unlocked ? `${cringePercent}%` : '—'}</b>
       <button class="vote-button cringe hot-take ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe"><span class="vote-face">${calloutGlyph('cringe')}</span><strong>HOT TAKE</strong></button>
-    </div>` : verdict}
+    </div>` : ''}
     ${detail
       ? `<div class="take-footer"><span>${unlocked ? `${total} ${total === 1 ? 'vote' : 'votes'}　•　` : ''}${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}</span></div>`
-      : feedPostActions(post, commentCount, isSaved, unlocked)}
+      : feedPostActions(post, commentCount, isSaved, unlocked, alrightPercent, cringePercent)}
   </article>`;
 }
 
@@ -1059,11 +1054,11 @@ function postEmojiPicker(post) {
   </div>`;
 }
 
-function feedPostActions(post, commentCount, isSaved, unlocked) {
+function feedPostActions(post, commentCount, isSaved, unlocked, basedPercent, hotPercent) {
   return `<div class="feed-post-actions">
     <button class="feed-action feed-comment-action" type="button" data-open-take="${post.id}" aria-label="Open ${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}"><svg><use href="#i-message"></use></svg><span class="feed-count">${commentCount}</span></button>
-    <button class="feed-action feed-vote-action based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright" aria-label="Vote Based">${calloutGlyph('based')}<span class="feed-count">${unlocked ? Number(post.alrightVotes || 0) : ''}</span></button>
-    <button class="feed-action feed-vote-action hot ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe" aria-label="Vote Hot Take">${calloutGlyph('cringe')}<span class="feed-count">${unlocked ? Number(post.cringeVotes || 0) : ''}</span></button>
+    <button class="feed-action feed-vote-action based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright" aria-label="Vote Based${unlocked ? `, ${basedPercent}%` : ''}">${calloutGlyph('based')}<span class="feed-count">${unlocked ? `${basedPercent}%` : ''}</span></button>
+    <button class="feed-action feed-vote-action hot ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe" aria-label="Vote Hot Take${unlocked ? `, ${hotPercent}%` : ''}">${calloutGlyph('cringe')}<span class="feed-count">${unlocked ? `${hotPercent}%` : ''}</span></button>
     <span class="feed-action-spacer" aria-hidden="true"></span>
     <button class="feed-action feed-icon-action" type="button" data-feed-share="${post.id}" aria-label="Share take">↥</button>
     <button class="feed-action feed-icon-action ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>

@@ -48,14 +48,16 @@ test('Battles starts waiting and the owner controls it through a persistent show
   assert.match(app, /Show on site/);
   assert.match(app, /featureUnavailableView\('Battles'\)/);
   assert.match(css, /\.waiting-feature-list article/);
-  assert.match(css, /\.main-content\[data-route="home"\],\.main-content\[data-route="trending"\]\s*\{[^}]*760px/);
+  assert.match(css, /\.main-content\[data-route="home"\],\.main-content\[data-route="trending"\]\s*\{[^}]*820px/);
 });
 
-test('compact feed uses title, description, a locked verdict, and five icon actions', () => {
+test('compact feed uses title, description, no bar chart, and five icon actions', () => {
   const template = app.slice(app.indexOf('function postTemplate'), app.indexOf('function formatPostContent'));
   const actions = app.slice(app.indexOf('function feedPostActions'), app.indexOf('function feedQuickComposer'));
   assert.match(template, /take-description/);
-  assert.match(template, /Vote to reveal the community verdict/);
+  assert.doesNotMatch(template, /feed-verdict/);
+  assert.match(actions, /basedPercent/);
+  assert.match(actions, /hotPercent/);
   assert.match(actions, /data-open-take/);
   assert.match(actions, /data-vote="alright"/);
   assert.match(actions, /data-vote="cringe"/);

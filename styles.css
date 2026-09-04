@@ -1289,19 +1289,19 @@ html[data-resolved-theme="dark"] .feed-post-actions { border-color:#4c525e; }
 }
 
 /* Compact Callout feed: X/Peerlist rhythm with Callout's hard-edged identity. */
-.main-content[data-route="home"],.main-content[data-route="trending"] { width:min(100%,760px); justify-self:center; }
-.main-content[data-route="home"] .take-list,.main-content[data-route="trending"] .take-list { gap:22px; padding-bottom:22px; }
-.main-content[data-route="home"] .category-row,.main-content[data-route="trending"] .category-row { padding:19px 0 17px; }
+.main-content[data-route="home"],.main-content[data-route="trending"] { width:min(100%,820px); justify-self:center; }
+.main-content[data-route="home"] .take-list,.main-content[data-route="trending"] .take-list { gap:14px; padding-bottom:22px; }
+.main-content[data-route="home"] .category-row,.main-content[data-route="trending"] .category-row { padding:16px 0 15px; }
 .take-card-feed { overflow:hidden; border:1.5px solid var(--ink); border-radius:13px; box-shadow:3px 4px 0 var(--ink); }
-.take-card-feed .take-top { min-height:auto; grid-template-columns:46px minmax(0,1fr) 32px; gap:11px; padding:15px 15px 16px; }
+.take-card-feed .take-top { min-height:auto; grid-template-columns:48px minmax(0,1fr) 32px; gap:12px; padding:16px 16px 17px; }
 .take-card-feed .take-avatar { width:44px; height:44px; }
 .take-card-feed .take-content { min-height:0; }
-.take-card-feed .take-byline { display:flex; align-items:center; gap:5px; margin:1px 0 10px; line-height:1; }
+.take-card-feed .take-byline { display:flex; align-items:center; gap:5px; margin:1px 0 11px; line-height:1; }
 .take-card-feed .take-byline strong { color:var(--ink); font-size:13px; }
 .take-card-feed .take-handle,.take-card-feed .take-byline small { color:var(--muted); font-size:10px; font-weight:700; }
 .take-category-pill { display:inline-flex; align-items:center; min-height:20px; margin-left:4px; padding:2px 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--soft); font-size:8px; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
-.take-card-feed .take-content h2 { margin:0; font:800 16px/1.38 Inter,Arial,sans-serif; letter-spacing:-.012em; text-transform:none; }
-.take-description { margin:9px 0 0; color:var(--ink); font:500 13px/1.55 Inter,Arial,sans-serif; }
+.take-card-feed .take-content h2 { margin:0; font:800 17px/1.4 Inter,Arial,sans-serif; letter-spacing:-.012em; text-transform:none; }
+.take-description { margin:10px 0 0; color:var(--ink); font:500 14px/1.58 Inter,Arial,sans-serif; }
 .take-description.is-clamped { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:6; }
 .take-read-more { margin:5px 0 0; padding:0; border:0; color:var(--muted); background:none; font-size:11px; font-weight:850; }
 .take-read-more:hover { color:var(--orange); text-decoration:underline; }
@@ -1309,22 +1309,7 @@ html[data-resolved-theme="dark"] .feed-post-actions { border-color:#4c525e; }
 .take-card-feed .take-media { margin-bottom:10px; }
 .take-card-feed .icon-button { align-self:start; }
 
-.feed-verdict { display:grid; grid-template-columns:minmax(64px,auto) minmax(110px,1fr) minmax(64px,auto); align-items:center; gap:10px; min-height:52px; margin:0 15px 14px 72px; padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:color-mix(in srgb,var(--soft) 78%,var(--paper)); }
-.feed-verdict-label { display:grid; place-items:center; min-width:62px; min-height:36px; padding:4px 7px; border-radius:7px; line-height:1; white-space:nowrap; }
-.feed-verdict-label b { font-size:12px; font-weight:950; }
-.feed-verdict-label small { margin-top:3px; color:currentColor; font-size:7px; font-weight:950; letter-spacing:.07em; }
-.feed-verdict-label.based { color:#159d2c; }
-.feed-verdict-label.hot { color:var(--orange); }
-.feed-verdict.is-unlocked .feed-verdict-label.based { background:color-mix(in srgb,var(--green) 14%,transparent); }
-.feed-verdict.is-unlocked .feed-verdict-label.hot { background:color-mix(in srgb,var(--orange) 11%,transparent); }
-.feed-verdict-track { position:relative; height:12px; overflow:hidden; border:1.5px solid var(--ink); border-radius:99px; background:linear-gradient(90deg,var(--green) 0 var(--alright),var(--orange) var(--alright) 100%); box-shadow:inset 0 1px 1px rgba(0,0,0,.16); }
-.feed-verdict-track i { position:absolute; top:-2px; bottom:-2px; left:var(--alright); width:2px; background:var(--ink); transform:translateX(-1px); }
-.feed-verdict.is-locked .feed-verdict-label { color:var(--muted); }
-.feed-verdict.is-locked .feed-verdict-track { border-color:var(--line); background:linear-gradient(90deg,#d8d8d4 0 49.7%,#b8babd 49.7% 50.3%,#d8d8d4 50.3% 100%); }
-.feed-verdict.is-locked .feed-verdict-track i { display:none; }
-.feed-verdict-track span { position:absolute; inset:0; display:grid; place-items:center; color:#5e5e5a; font-size:6px; font-weight:950; letter-spacing:.08em; }
-
-.feed-post-actions { min-height:46px; gap:12px; padding:7px 14px 8px; }
+.feed-post-actions { min-height:48px; gap:14px; padding:8px 15px 9px; }
 .feed-action { min-width:36px; height:31px; padding:0 7px; }
 .feed-vote-action { gap:4px; }
 .feed-vote-action .callout-glyph { width:17px; height:17px; }
@@ -1367,16 +1352,13 @@ html[data-resolved-theme="dark"] .feed-post-actions { border-color:#4c525e; }
 
 @media (max-width:700px) {
   .main-content[data-route="home"],.main-content[data-route="trending"] { width:100%; }
-  .main-content[data-route="home"] .take-list,.main-content[data-route="trending"] .take-list { gap:16px; }
+  .main-content[data-route="home"] .take-list,.main-content[data-route="trending"] .take-list { gap:12px; }
   .take-card-feed .take-top { grid-template-columns:39px minmax(0,1fr) 28px; gap:9px; padding:12px 11px 13px; }
   .take-card-feed .take-avatar { width:38px; height:38px; }
   .take-card-feed .take-byline { gap:3px; }
   .take-category-pill { flex-basis:max-content; margin:4px 0 0; }
   .take-card-feed .take-content h2 { font-size:15px; }
   .take-card-feed .take-media,.take-card-feed .post-poll,.take-card-feed .external-post,.take-card-feed .link-embed { margin-right:11px; margin-left:59px; }
-  .feed-verdict { grid-template-columns:56px minmax(72px,1fr) 56px; gap:6px; margin:0 11px 11px 59px; padding:6px; }
-  .feed-verdict-label { min-width:0; padding-inline:3px; }
-  .feed-verdict-label b { font-size:10px; }
   .waiting-feature-list article { grid-template-columns:44px minmax(0,1fr); padding:14px; }
   .waiting-feature-icon { width:42px; height:42px; }
   .waiting-feature-actions { grid-column:1/-1; grid-template-columns:1fr 1fr; width:100%; }
