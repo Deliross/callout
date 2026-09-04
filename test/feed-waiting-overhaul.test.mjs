@@ -55,7 +55,7 @@ test('compact feed uses title, description, a locked verdict, and five icon acti
   const template = app.slice(app.indexOf('function postTemplate'), app.indexOf('function formatPostContent'));
   const actions = app.slice(app.indexOf('function feedPostActions'), app.indexOf('function feedQuickComposer'));
   assert.match(template, /take-description/);
-  assert.match(template, /Vote to reveal the verdict/);
+  assert.match(template, /Vote to reveal the community verdict/);
   assert.match(actions, /data-open-take/);
   assert.match(actions, /data-vote="alright"/);
   assert.match(actions, /data-vote="cringe"/);

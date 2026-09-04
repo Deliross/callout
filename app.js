@@ -903,10 +903,9 @@ function postTemplate(post, detail = false) {
   const description = post.description || '';
   const category = escapeHtml(post.category || 'Callout');
   const verdict = `<div class="feed-verdict ${unlocked ? 'is-unlocked' : 'is-locked'}" aria-label="${unlocked ? `${alrightPercent}% Based and ${cringePercent}% Hot Take` : 'Vote to reveal the community verdict'}">
-    <span class="feed-verdict-label based">${unlocked ? `${alrightPercent}% BASED` : 'BASED'}</span>
-    <div class="feed-verdict-track" style="--alright:${unlocked ? alrightPercent : 50}%"><i></i></div>
-    <span class="feed-verdict-label hot">${unlocked ? `${cringePercent}% HOT` : 'HOT TAKE'}</span>
-    ${unlocked ? '' : '<small>Vote to reveal the verdict</small>'}
+    <span class="feed-verdict-label based"><b>${unlocked ? `${alrightPercent}%` : '—'}</b><small>BASED</small></span>
+    <div class="feed-verdict-track" style="--alright:${unlocked ? alrightPercent : 50}%"><i></i>${unlocked ? '' : '<span>VOTE TO REVEAL</span>'}</div>
+    <span class="feed-verdict-label hot"><b>${unlocked ? `${cringePercent}%` : '—'}</b><small>HOT TAKE</small></span>
   </div>`;
   return `<article class="take-card ${detail ? 'take-card-detail' : 'take-card-feed'} ${post.anonymous && !post.anonymousRevealedAt ? 'anonymous-take' : ''} ${post.publishing ? 'take-publishing' : ''}" data-post-id="${post.id}">
     ${post.publishing ? '<div class="take-publishing-status"><span></span><strong>Publishing</strong><small>Your take is being securely saved in the background.</small></div>' : ''}
