@@ -1058,13 +1058,19 @@ function postEmojiPicker(post) {
 }
 
 function feedPostActions(post, commentCount, isSaved, unlocked, basedPercent, hotPercent) {
+  const basedCount = unlocked ? Math.max(0, Number(post.alrightVotes) || 0) : 0;
+  const hotCount = unlocked ? Math.max(0, Number(post.cringeVotes) || 0) : 0;
+  const total = basedCount + hotCount;
+  const split = total ? basedCount / total * 100 : 0;
+  const summary = !unlocked ? 'Vote to reveal the community result' : !total ? 'No votes yet' : `${Math.round(split)}% Based, ${100 - Math.round(split)}% Hot Take · ${total} votes`;
   return `<div class="feed-post-actions">
     <button class="feed-action feed-comment-action" type="button" data-open-take="${post.id}" aria-label="Open ${commentCount} ${commentCount === 1 ? 'Take' : 'Takes'}"><svg><use href="#i-message"></use></svg><span class="feed-count">${commentCount}</span></button>
-    <button class="feed-action feed-vote-action based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright" aria-label="Vote Based${unlocked ? `, ${basedPercent}%` : ''}">${calloutGlyph('based')}<span class="feed-count">${unlocked ? `${basedPercent}%` : ''}</span></button>
-    <button class="feed-action feed-vote-action hot ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe" aria-label="Vote Hot Take${unlocked ? `, ${hotPercent}%` : ''}">${calloutGlyph('cringe')}<span class="feed-count">${unlocked ? `${hotPercent}%` : ''}</span></button>
+    <button class="feed-action feed-vote-action based ${post.userVote === 'alright' ? 'selected' : ''}" type="button" data-vote="alright" aria-label="Vote Based${unlocked ? `, ${basedCount} votes` : ''}">${calloutGlyph('based')}<span class="feed-count">${unlocked ? basedCount : ''}</span></button>
+    <button class="feed-action feed-vote-action hot ${post.userVote === 'cringe' ? 'selected' : ''}" type="button" data-vote="cringe" aria-label="Vote Hot Take${unlocked ? `, ${hotCount} votes` : ''}">${calloutGlyph('cringe')}<span class="feed-count">${unlocked ? hotCount : ''}</span></button>
     <span class="feed-action-spacer" aria-hidden="true"></span>
     <button class="feed-action feed-icon-action" type="button" data-feed-share="${post.id}" aria-label="Share take">↥</button>
     <button class="feed-action feed-icon-action ${isSaved ? 'saved' : ''}" type="button" data-save-post="${post.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save take'}"><svg><use href="#i-bookmark"></use></svg></button>
+    <span class="feed-split-edge" role="img" aria-label="${summary}" title="${summary}">${unlocked && total ? `<i class="edge-based" style="width:${split}%"></i><i class="edge-hot" style="width:${100 - split}%"></i>` : ''}</span>
   </div>`;
 }
 
@@ -1858,9 +1864,12 @@ function bindPostInteractions() {
     const nextVote = button.dataset.vote;
     try {
       const payload = await apiFetch(`/api/posts/${post.databaseId}/vote`, { method: 'POST', body: JSON.stringify({ value: nextVote }) });
-      Object.assign(post, { alrightVotes: payload.post.alrightVotes, cringeVotes: payload.post.cringeVotes, userVote: payload.post.userVote, impressions: payload.post.impressions });
+      Object.assign(post, { alrightVotes: payload.post.alrightVotes, cringeVotes: payload.post.cringeVotes, userVote: payload.post.userVote, impressions: payload.post.impressions, resultsUnlocked: Boolean(payload.post.resultsUnlocked), voteSummary: payload.post.voteSummary });
       runVoteEffect(button, nextVote);
       await Promise.all([hydrateTrending(), hydrateSession(), hydrateLeaderboard()]); renderRoute();
+      document.querySelectorAll('.take-card-feed[data-post-id]').forEach(item => {
+        if (item.dataset.postId === String(post.id)) item.querySelector('.feed-split-edge')?.classList.add('is-revealing');
+      });
       trackEvent('rank_post', { rank_value: nextVote, post_category: post.category });
       showToast(payload.post.userVote ? `You called it ${nextVote === 'alright' ? 'Based' : 'a Hot Take'}.` : 'Vote removed.');
     } catch (error) { showToast(error.message); }
