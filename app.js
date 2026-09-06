@@ -931,6 +931,9 @@ function postTemplate(post, detail = false) {
   </article>`;
 }
 
+routes.add('heat-wheel');
+routes.add('take-rush');
+
 function formatPostContent(value = '') {
   return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\|\|([^|]+)\|\|/g, '<span class="spoiler-text" tabindex="0">$1</span>').replace(/\n/g, '<br>');
 }
@@ -1805,6 +1808,9 @@ function featureUnavailableView(name) {
 }
 
 function renderRoute() {
+  CalloutOriginals.dispose();
+  viewRenderers['heat-wheel'] = () => CalloutOriginals.view('wheel');
+  viewRenderers['take-rush'] = () => CalloutOriginals.view('rush');
   const route = currentRoute();
   const previewingHiddenFeature = Boolean(
     sessionUser?.isAdmin && state.featurePreview === route && !state.features?.[route]
@@ -1819,6 +1825,7 @@ function renderRoute() {
   updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
+  if (route === 'heat-wheel' || route === 'take-rush') CalloutOriginals.mount(route === 'take-rush' ? 'rush' : 'wheel', mainContent);
   renderProfileHeatFrame();
   if (routeAllowsAds()) initializeAds(mainContent);
   trackPageView();

@@ -1,0 +1,67 @@
+/* Continuous timeline. Deliberately does not restyle .feed-post-actions
+   or .feed-action: the existing bottom row and voting behavior are retained. */
+body { background:var(--paper); }
+.main-content:is([data-route="home"],[data-route="trending"]) {
+  width:100%;max-width:760px;justify-self:stretch;padding:0 0 36px;
+  border-inline:1px solid var(--line);background:var(--paper);
+}
+.main-content:is([data-route="home"],[data-route="trending"]) .take-list { gap:0;padding-bottom:0; }
+.main-content:is([data-route="home"],[data-route="trending"]) .take-card-feed {
+  margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;
+  box-shadow:none;background:var(--paper);
+}
+.main-content:is([data-route="home"],[data-route="trending"]) .take-top {
+  grid-template-columns:42px minmax(0,1fr) 28px;gap:12px;padding:22px 20px 14px;
+}
+.main-content:is([data-route="home"],[data-route="trending"]) .take-avatar { width:40px;height:40px; }
+.main-content:is([data-route="home"],[data-route="trending"]) .take-byline { flex-wrap:wrap;gap:5px 7px;line-height:1.4;margin:0 0 6px; }
+.main-content:is([data-route="home"],[data-route="trending"]) .take-byline strong { font-size:15px; }
+.main-content:is([data-route="home"],[data-route="trending"]) :is(.take-handle,.take-byline small) { font-size:12px;font-weight:450; }
+.main-content:is([data-route="home"],[data-route="trending"]) .take-content h2 { font:550 17px/1.55 Inter,Arial,sans-serif;letter-spacing:0; }
+.main-content:is([data-route="home"],[data-route="trending"]) .take-description { font:400 16px/1.6 Inter,Arial,sans-serif; }
+.main-content:is([data-route="home"],[data-route="trending"]) :is(.take-media,.post-poll,.external-post,.link-embed) { margin-left:74px;margin-right:20px; }
+.main-content:is([data-route="home"],[data-route="trending"]) .feed-tabs { gap:0;justify-content:space-around;padding:0 16px; }
+.main-content:is([data-route="home"],[data-route="trending"]) .feed-tabs .tab { font-size:14px; }
+.main-content:is([data-route="home"],[data-route="trending"]) .feed-quick-composer {
+  min-height:86px;margin:0;padding:18px 20px;border:0;border-bottom:1px solid var(--line);
+  border-radius:0;box-shadow:none;background:var(--paper);
+}
+.main-content:is([data-route="home"],[data-route="trending"]) .feed-quick-composer>span:nth-child(2) { font-size:17px;font-weight:450; }
+.main-content:is([data-route="home"],[data-route="trending"]) .category-row { padding:14px 20px;border-bottom:1px solid var(--line);overflow-x:auto; }
+/* True dark surfaces and readable controls, including palette overrides. */
+html[data-resolved-theme="dark"],html[data-resolved-theme="dark"][data-palette] {
+  --ink:#eff0f2;--muted:#a6acb5;--line:#35383e;--soft:#22252a;--paper:#16181c;background:#101114;
+}
+html[data-resolved-theme="dark"] :is(body,.page-shell,.main-content,.right-rail,.sidebar,.topbar,.site-footer) { background:var(--paper);color:var(--ink);box-shadow:none; }
+html[data-resolved-theme="dark"] :is(.top-search,.feed-quick-composer,.composer-head,.composer-actions,.composer-live-preview,.composer-live-preview>header,.take-content,.take-top,.feed-post-actions) { background:var(--paper);color:var(--ink);border-color:var(--line); }
+html[data-resolved-theme="dark"] :is(.top-search input,.profile-button,.icon-button,.tab,.chip) { color:var(--ink); }
+html[data-resolved-theme="dark"] .top-search input { background:transparent; }
+html[data-resolved-theme="dark"] :is(.category-row .chip,.automation-label,.take-category-pill) { background:var(--soft);color:var(--muted);border-color:var(--line); }
+html[data-resolved-theme="dark"] .category-row .chip.active { background:var(--ink);color:var(--paper); }
+html[data-resolved-theme="dark"] .feed-tabs .tab.active::after { background:var(--ink); }
+html[data-resolved-theme="dark"] :is(.nav-item.active,.post-button,.publish-button,.primary-action) { color:#101114; }
+html[data-resolved-theme="dark"] .nav-item.active { background:#ffde59;box-shadow:3px 3px 0 #050506; }
+html[data-resolved-theme="dark"] .feed-vote-action.based.selected { color:#73ec7d; }
+html[data-resolved-theme="dark"] .feed-vote-action.hot.selected { color:#ff956e; }
+html[data-resolved-theme="dark"] .take-card-feed.anonymous-card { background:var(--paper); }
+html[data-resolved-theme="dark"] [data-post-menu] svg { fill:currentColor; }
+@media(min-width:1061px) {
+  body:is([data-route="home"],[data-route="trending"]) :is(.page-shell,.topbar) { grid-template-columns:minmax(210px,1fr) minmax(0,720px) minmax(280px,1fr); }
+  body:is([data-route="home"],[data-route="trending"]) .sidebar>* { max-width:220px;margin-left:auto; }
+  body:is([data-route="home"],[data-route="trending"]) .right-rail { padding:20px 18px; }
+  body:is([data-route="home"],[data-route="trending"]) .right-rail>* { width:100%;max-width:300px; }
+}
+@media(min-width:841px) and (max-width:1060px) {
+  body:is([data-route="home"],[data-route="trending"]) :is(.page-shell,.topbar) { grid-template-columns:88px minmax(0,1fr); }
+}
+@media(max-width:700px) {
+  .main-content:is([data-route="home"],[data-route="trending"]) { max-width:none;border-inline:0; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .take-top { padding:18px 12px 12px;grid-template-columns:36px minmax(0,1fr) 24px;gap:10px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .take-avatar { width:36px;height:36px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .take-content h2 { font-size:16px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .take-byline strong { font-size:14px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) :is(.take-media,.post-poll,.external-post,.link-embed) { margin-left:58px;margin-right:12px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .category-row { padding:12px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .feed-tabs { padding:0 8px; }
+  .main-content:is([data-route="home"],[data-route="trending"]) .feed-tabs .tab { font-size:12px; }
+}

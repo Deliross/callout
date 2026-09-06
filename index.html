@@ -19,7 +19,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260904-feed-clean" />
+    <link rel="stylesheet" href="styles.css?v=20260906-timeline" />
+    <link rel="stylesheet" href="assets/originals.css?v=20260906" />
+    <link rel="stylesheet" href="assets/timeline.css?v=20260906" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -85,6 +87,8 @@
             <h2 id="nav-originals-label">Originals</h2>
             <a class="nav-item" href="#battles" data-route="battles" data-feature-nav="battles" hidden><svg><use href="#i-battles"></use></svg><span>Battles</span></a>
             <a class="nav-item" href="#ideas" data-route="ideas"><svg><use href="#i-idea"></use></svg><span>Idea Archive</span></a>
+            <a class="nav-item" href="#heat-wheel" data-route="heat-wheel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M6 6l12 12M6 18L18 6"/></svg><span>Heat Wheel</span></a>
+            <a class="nav-item" href="#take-rush" data-route="take-rush"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-13h-8z"/></svg><span>Take Rush</span></a>
           </section>
 
           <section class="nav-section" aria-labelledby="nav-account-label">
@@ -206,6 +210,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/dompurify.min.js"></script>
-    <script src="app.js?v=20260904-feed-clean"></script>
+    <script src="assets/originals.js?v=20260906"></script>
+    <script src="app.js?v=20260906-timeline"></script>
   </body>
 </html>
