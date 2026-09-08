@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import Joi from 'joi';
+import { browserAccessAllowed } from './browserAccounts.mjs';
 
 export const ACCESS_COOKIE = 'callout_access';
 export const REFRESH_COOKIE = 'callout_refresh';
@@ -39,7 +40,7 @@ const mediaItem = Joi.object({
 const mediaCollection = Joi.array().max(5).items(mediaItem).custom((items, helpers) => {
   if (!items.length) return items;
   const videos = items.filter(item => item.type === 'video');
-  if (videos.some(item => item.aspectRatio < 0.95 || item.aspectRatio > 1.05)) return helpers.message({ custom: 'Short videos must use a square 1:1 aspect ratio.' });
+  if (videos.some(item => (item.aspectRatio < 0.95 || item.aspectRatio > 1.05) && Math.abs(item.aspectRatio - 9/16) > .006)) return helpers.message({ custom: 'Videos must be square or 9:16.' });
   return items;
 }, 'media layout validation');
 const externalEmbed = Joi.object({
@@ -136,6 +137,7 @@ export const schemas = {
     }).required()
   }),
   post: Joi.object({
+    format: Joi.string().valid('normal', 'loop'),
     clientRequestId: Joi.string().guid({ version: ['uuidv4'] }).allow('').default(''),
     title: postTitle.allow('').default(''),
     description: postDescription.allow('').default(''),
@@ -160,6 +162,7 @@ export const schemas = {
     media: mediaCollection.default([])
   }).custom((value, helpers) => {
     if (!value.draft && !value.title) return helpers.message({ custom: 'Published posts need a title.' });
+    if (value.format === 'loop' && (value.media.length !== 1 || value.media[0].type !== 'video' || Math.abs(value.media[0].aspectRatio - 9/16) > .006 || value.poll || value.externalEmbed || value.embedUrl)) return helpers.message({ custom: 'A Loop requires one 9:16 video and no other attachments.' });
     if (value.contentType === 'poll' && !value.poll) return helpers.message({ custom: 'Poll posts require a question and at least two options.' });
     return value;
   }, 'composer requirements'),
@@ -323,8 +326,8 @@ export function validate(schema) {
   };
 }
 
-export function signAccessToken(userId) {
-  return jwt.sign({ sub: String(userId), type: 'access' }, accessSecret(), { expiresIn: '15m', issuer: 'callout' });
+export function signAccessToken(userId, browser = '', session = '') {
+  return jwt.sign({ sub: String(userId), type: 'access', ...(browser ? {browser,session} : {}) }, accessSecret(), { expiresIn: '15m', issuer: 'callout' });
 }
 
 export function signRefreshToken(userId) {
@@ -349,12 +352,15 @@ export function clearAuthCookies(res) {
   res.clearCookie(REFRESH_COOKIE, { httpOnly: true, secure, sameSite: 'lax', path: '/api/auth' });
 }
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const token = req.cookies?.[ACCESS_COOKIE];
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   try {
     const payload = jwt.verify(token, accessSecret(), { issuer: 'callout' });
     if (payload.type !== 'access') throw new Error('Invalid token type');
+    if (!await browserAccessAllowed(req,payload)) throw new Error('Browser account changed');
+    if (req.get('x-callout-account') && req.get('x-callout-account') !== payload.sub)
+      return res.set('X-Callout-Account-Changed','true').status(409).json({error:'Your account changed in another tab. Reload before continuing.'});
     req.userId = payload.sub;
     next();
   } catch {
@@ -362,12 +368,12 @@ export function requireAuth(req, res, next) {
   }
 }
 
-export function optionalAuth(req, _res, next) {
+export async function optionalAuth(req, _res, next) {
   const token = req.cookies?.[ACCESS_COOKIE];
   if (!token) return next();
   try {
     const payload = jwt.verify(token, accessSecret(), { issuer: 'callout' });
-    if (payload.type === 'access') req.userId = payload.sub;
+    if (payload.type === 'access' && await browserAccessAllowed(req,payload)) req.userId = payload.sub;
   } catch { /* public routes remain available to signed-out visitors */ }
   next();
 }

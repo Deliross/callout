@@ -1,0 +1,40 @@
+const {chromium}=require(process.env.PLAYWRIGHT_PATH || 'playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+  const browser=await chromium.launch({headless:true,channel:'chrome'});
+  const context=await browser.newContext();
+  const headers={'X-Callout-Action':'account',Origin:'http://localhost:4173'};
+  const api=(url,data)=>context.request.post('http://localhost:4173'+url,{data,headers});
+  const stamp=Date.now();
+  const signup=async(name)=>{
+    const r=await api('/api/auth/signup',{displayName:name,email:name+stamp+'@example.com',password:'Test-Only-Strong-Pass123!',ageConfirmed:true});
+    assert.equal(r.status(),201,await r.text());return (await r.json()).user;
+  };
+  const a=await signup('TestAlpha');
+  const cookiesA=await context.cookies();
+  const b=await signup('TestBeta');
+  const list=await context.request.get('http://localhost:4173/api/auth/accounts');
+  assert.equal((await list.json()).accounts.length,2);
+  const wrong=await context.request.post('http://localhost:4173/api/posts',{headers:{...headers,'X-Callout-Account':a.id},data:{title:'Stale tab must not publish',content:'Stale tab must not publish',category:'Life'}});
+  assert.equal(wrong.status(),409,await wrong.text());
+  const switchResponse=await api('/api/auth/accounts/switch',{userId:a.id});assert.equal(switchResponse.status(),200,await switchResponse.text());
+  const page=await context.newPage();const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
+  await page.goto('http://localhost:4173/#saved');await page.waitForTimeout(1200);
+  await page.getByRole('button',{name:'Essential only'}).click().catch(()=>{});
+  await page.locator('#profileButton').click();await page.getByRole('heading',{name:'Accounts',exact:true}).waitFor();
+  assert.equal(await page.locator('[data-switch]').count(),2);
+  await page.screenshot({path:'artifacts/refresh/accounts.png'});
+  await page.locator('[data-dismiss]').click();
+  // Replaying the access token from before a switch must not restore the old session.
+  const current=await context.cookies();
+  const old=cookiesA.find(c=>c.name==='callout_access');
+  await context.addCookies([old]);
+  const replay=await context.request.get('http://localhost:4173/api/auth/me');assert.equal(replay.status(),401);
+  await context.addCookies(current);
+  const invalid=await api('/api/auth/accounts/switch',{userId:'not-in-this-browser'});assert.equal(invalid.status(),403);
+  const out=await api('/api/auth/accounts/logout-all',{});assert.equal(out.status(),204);
+  assert.equal((await (await context.request.get('http://localhost:4173/api/auth/accounts')).json()).accounts.length,0);
+  assert.deepEqual(pageErrors,[]);
+  console.log('PASS: signup, two-account grants, stale-tab write rejection, switching, menu, old-token rejection, unauthorized switch, browser-wide logout.');
+  await browser.close();
+})().catch(e=>{console.error(e);process.exit(1);});

@@ -49,7 +49,7 @@ const defaultState = {
 };
 
 const storedState = (() => {
-  try { return JSON.parse(localStorage.getItem(storageKey)); } catch { return null; }
+  try { const saved=JSON.parse(localStorage.getItem(storageKey)); return saved ? {settings:saved.settings} : null; } catch { return null; }
 })();
 
 const state = {
@@ -389,8 +389,7 @@ function trackEvent(name, parameters = {}) {
 }
 
 function persist() {
-  const lightweightProfile = { ...state.profile, avatarUrl: '', bannerUrl: '' };
-  const cache = { profile: lightweightProfile, settings: state.settings, savedPostIds: state.savedPostIds };
+  const cache = { settings: state.settings };
   try { localStorage.setItem(storageKey, JSON.stringify(cache)); }
   catch (error) {
     localStorage.removeItem(storageKey);
@@ -434,8 +433,96 @@ function runVoteEffect(button, value) {
   button.appendChild(burst); setTimeout(() => burst.remove(), 850);
 }
 
+let accountStale = false;
+const accountChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('callout-account') : null;
+function hasUnsentContent() {
+  return Boolean(document.querySelector('#takeTitle')?.value.trim() ||
+    document.querySelector('#takeText')?.value.trim() || pendingMedia.length ||
+    [...document.querySelectorAll('textarea')].some(input=>input.value.trim()));
+}
+function confirmAccountChange() {
+  return !hasUnsentContent() || confirm('Changing accounts will discard unsent content. Continue?');
+}
+function finishAccountChange() {
+  accountStale = true;
+  messageStream?.close();
+  CalloutDiscovery.reset();
+  try { localStorage.setItem(storageKey,JSON.stringify({settings:state.settings})); } catch {}
+  accountChannel?.postMessage({type:'changed'});
+  try { localStorage.setItem('callout-account-change',String(Date.now())); } catch {}
+  location.reload();
+}
+function showAccountChanged() {
+  if(accountStale)return;
+  accountStale=true; messageStream?.close(); CalloutDiscovery.dispose();
+  const dialog=document.createElement('dialog');
+  dialog.className='account-dialog';
+  const drafts=[...document.querySelectorAll('textarea, #takeTitle')].map(x=>x.value).filter(Boolean).join('\n\n');
+  dialog.innerHTML='<h2>Your account changed in another tab</h2><p>Reload to use the new account. No further actions will be sent from this tab.</p>'+
+    (drafts?'<label>Copy any unsent text before reloading<textarea readonly></textarea></label>':'')+
+    '<button class="primary-action" type="button">Reload Callout</button>';
+  if(drafts)dialog.querySelector('textarea').value=drafts;
+  dialog.addEventListener('cancel',e=>e.preventDefault());
+  dialog.querySelector('button').onclick=()=>{if(confirmAccountChange())location.reload();};
+  document.body.append(dialog);dialog.showModal();
+}
+accountChannel?.addEventListener('message',showAccountChanged);
+window.addEventListener('storage',event=>{if(event.key==='callout-account-change')showAccountChanged();});
+async function openAccountMenu() {
+  document.querySelector('#accountMenu')?.remove();
+  const dialog=document.createElement('dialog');dialog.id='accountMenu';dialog.className='account-dialog';
+  const button=document.querySelector('#profileButton');
+  button.setAttribute('aria-expanded','true');
+  dialog.innerHTML='<header><h2>Accounts</h2><button type="button" data-dismiss aria-label="Close accounts">×</button></header><div class="account-list" aria-live="polite">Loading…</div>'+
+    (sessionUser?'<button type="button" data-account-profile>Profile</button><button type="button" data-account-settings>Settings</button>':'')+
+    '<button type="button" data-account-add>'+ (sessionUser?'Add account':'Sign in') +'</button>'+
+    (sessionUser?'<button type="button" data-account-out>Sign out of this account</button>':'')+
+    '<button type="button" data-account-all>Sign out of all accounts on this browser</button>';
+  document.body.append(dialog);dialog.showModal();
+  const close=()=>dialog.close();
+  dialog.addEventListener('close',()=>{button.setAttribute('aria-expanded','false');dialog.remove();button.focus();});
+  dialog.querySelector('[data-dismiss]').onclick=close;
+  dialog.querySelector('[data-account-profile]')?.addEventListener('click',()=>{close();navigate('profile');});
+  dialog.querySelector('[data-account-settings]')?.addEventListener('click',()=>{close();navigate('settings');});
+  dialog.querySelector('[data-account-add]').onclick=()=>{
+    if(!confirmAccountChange())return;
+    close();state.addingAccount=true;navigate('auth');
+  };
+  dialog.querySelector('[data-account-out]')?.addEventListener('click',()=>logoutUser());
+  dialog.querySelector('[data-account-all]').onclick=async()=>{
+    if(!confirmAccountChange())return;
+    try {await apiFetch('/api/auth/accounts/logout-all',{method:'POST'},false);finishAccountChange();}
+    catch(error){showToast(error.message);}
+  };
+  try {
+    let result=await apiFetch('/api/auth/accounts',{},false);
+    if(sessionUser && !result.accounts.some(a=>a.active)){
+      await apiFetch('/api/auth/refresh',{method:'POST'},false);
+      result=await apiFetch('/api/auth/accounts',{},false);
+    }
+    dialog.querySelector('.account-list').innerHTML=result.accounts.map(a=>
+      '<div class="account-row"><button type="button" data-switch="'+escapeHtml(a.id)+'" '+(a.active?'disabled':'')+'><strong>'+escapeHtml(a.displayName)+'</strong><small>'+escapeHtml(a.handle)+(a.active?' · Active':' · Switch account')+'</small></button><button type="button" data-remove="'+escapeHtml(a.id)+'" aria-label="Remove '+escapeHtml(a.displayName)+' from this browser">×</button></div>'
+    ).join('') || '<p>No saved accounts in this browser.</p>';
+    dialog.querySelector('[data-account-add]').disabled=result.accounts.length>=5;
+    dialog.querySelectorAll('[data-switch],[data-remove]').forEach(b=>b.onclick=async()=>{
+      if(!confirmAccountChange())return;
+      b.disabled=true;
+      try {await apiFetch('/api/auth/accounts/'+(b.dataset.switch?'switch':'remove'),{method:'POST',body:JSON.stringify({userId:b.dataset.switch || b.dataset.remove})},false);finishAccountChange();}
+      catch(error){b.disabled=false;showToast(error.message);}
+    });
+  }catch(error){dialog.querySelector('.account-list').textContent=error.message;}
+}
+
 async function apiFetch(url, options = {}, retry = true) {
-  const response = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  if (accountStale) throw new Error('Account changed. Reload before continuing.');
+  const response = await fetch(url, { credentials: 'same-origin', ...options, headers: {
+    'Content-Type': 'application/json', 'X-Callout-Action': 'account',
+    ...(sessionUser && !url.startsWith('/api/auth/') ? {'X-Callout-Account':currentUserId()} : {}),
+    ...(options.headers || {})
+  } });
+  if (response.status === 409 && response.headers.get('X-Callout-Account-Changed')) {
+    showAccountChanged(); throw new Error('Account changed in another tab.');
+  }
   if (response.status === 401 && retry && url !== '/api/auth/refresh') {
     // Only one refresh may rotate the device token at a time. Without this lock,
     // concurrent page requests can invalidate each other and clear a valid login.
@@ -462,6 +549,17 @@ async function apiFetch(url, options = {}, retry = true) {
 }
 
 function applySessionUser(user) {
+  if (user) {
+    const id=String(user.id || user._id);
+    try {
+      const previous=sessionStorage.getItem('callout-active-account');
+      sessionStorage.setItem('callout-active-account',id);
+      if(previous && previous!==id)accountChannel?.postMessage({type:'changed'});
+    } catch {}
+  }
+  if (sessionUser && user && currentUserId() !== String(user.id || user._id)) {
+    showAccountChanged(); return;
+  }
   sessionUser = user;
   document.querySelector('#analyticsNav').hidden = !user?.isAdmin;
   document.querySelector('#adminNav').hidden = !user?.isAdmin;
@@ -518,8 +616,9 @@ function startMessageStream() {
 }
 
 function updateHeaderProfile() {
+  document.querySelector('#accountNav span').textContent = sessionUser ? 'Accounts' : 'Sign in';
   const profile = sessionUser ? state.profile : defaultState.profile;
-  document.querySelector('#headerName').textContent = profile.displayName;
+  document.querySelector('#headerName').textContent = sessionUser ? profile.displayName : 'Sign in';
   document.querySelector('#headerHandle').textContent = profile.handle;
   const avatar = document.querySelector('#headerAvatar');
   avatar.classList.remove('heat-fresh', 'heat-mild', 'heat-spicy', 'heat-certified', 'heat-firestarter', 'heat-hall');
@@ -650,7 +749,7 @@ function mapPost(post) {
     authorId: String(post.author?.id || post.author?._id || post.author || ''),
     authorHandle: post.author?.handle || '@member', authorName: post.author?.displayName || 'Callout member',
     authorAvatarUrl: post.author?.avatarUrl || '', authorAutomated: Boolean(post.author?.isAutomated), authorPersona: post.author?.automationPersona || '',
-    title: structuredTitle || legacyContent, description: structuredTitle ? String(post.description || '') : '', text: legacyContent, category: post.category, media: Array.isArray(post.media) ? post.media : [],
+    format: post.format || 'normal', title: structuredTitle || legacyContent, description: structuredTitle ? String(post.description || '') : '', text: legacyContent, category: post.category, media: Array.isArray(post.media) ? post.media : [],
     poll: post.poll || null, topics: post.topics || [], contentWarning: post.contentWarning || '', embedUrl: post.embedUrl || '', externalEmbed: post.externalEmbed || null, reactionSet: post.reactionSet || 'classic', visibility: post.visibility || 'public',
     alrightVotes: post.alrightVotes == null ? null : Number(post.alrightVotes), cringeVotes: post.cringeVotes == null ? null : Number(post.cringeVotes), impressions: Number(post.impressions || 0),
     resultsUnlocked: Boolean(post.resultsUnlocked), voteSummary: post.voteSummary || { locked: true, total: null, based: null, hotTake: null },
@@ -933,6 +1032,7 @@ function postTemplate(post, detail = false) {
 
 routes.add('heat-wheel');
 routes.add('take-rush');
+routes.add('swipe'); routes.add('loops');
 
 function formatPostContent(value = '') {
   return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/\|\|([^|]+)\|\|/g, '<span class="spoiler-text" tabindex="0">$1</span>').replace(/\n/g, '<br>');
@@ -1417,7 +1517,8 @@ function notificationCategory(item) {
 
 function notificationsView() {
   const filtered = state.notificationFilter === 'all' ? state.notifications : state.notifications.filter(item => notificationCategory(item) === state.notificationFilter);
-  const grouped = Object.groupBy ? Object.groupBy(filtered, notificationCategory) : filtered.reduce((groups, item) => { (groups[notificationCategory(item)] ||= []).push(item); return groups; }, {});
+  const dayLabel = item => { const d=new Date(item.createdAt);const today=new Date();const yesterday=new Date();yesterday.setDate(today.getDate()-1);return d.toDateString()===today.toDateString()?'Today':d.toDateString()===yesterday.toDateString()?'Yesterday':d.toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'}); };
+  const grouped = [...filtered].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).reduce((groups,item)=>{(groups[dayLabel(item)] ||= []).push(item);return groups;},{});
   const row = item => `<article class="activity-item ${item.read ? '' : 'unread'}"><span class="avatar">${item.actor?.avatarUrl ? `<img src="${escapeHtml(item.actor.avatarUrl)}" alt="${escapeHtml(item.actor.displayName || 'Sender')}" />` : escapeHtml((item.actor?.displayName || 'C').charAt(0))}</span><div><span class="notification-kind">${notificationCategory(item).toUpperCase()}</span><strong>${escapeHtml(item.text)}</strong><small>${item.actor ? `${escapeHtml(item.actor.displayName)} · ` : ''}${timeLabel(new Date(item.createdAt).getTime())}</small></div><div class="notification-actions">${item.type === 'friend_request' ? `<button type="button" data-notification-user="${escapeHtml(item.actor?.id || '')}">View request</button>` : ''}${item.post ? `<button type="button" data-notification-post="${item.post}">Open</button>` : ''}${item.guild ? `<button type="button" data-notification-guild="${item.guild}">Open</button>` : ''}${item.type === 'message' && item.actor?.id ? `<button type="button" data-notification-message="${item.actor.id}">Chat</button>` : ''}${item.actor?.id ? `<button type="button" data-mute-notification="user" data-mute-id="${item.actor.id}">Mute</button>` : item.guild ? `<button type="button" data-mute-notification="guild" data-mute-id="${item.guild}">Mute</button>` : `<button type="button" data-mute-notification="category" data-mute-id="${item.category || notificationCategory(item)}">Mute</button>`}</div></article>`;
   const content = filtered.length ? `<section class="notification-groups">${Object.entries(grouped).map(([category, items]) => `<section><h2>${escapeHtml(category)}</h2><div class="activity-list">${items.map(row).join('')}</div></section>`).join('')}</section>` : emptyState('♢', 'Nothing in this category', 'Specific account activity will appear here when it happens.');
   return `${pageHeader('INBOX', 'Notifications', 'Votes, replies, guild activity, and system updates in one place.', '<button class="quiet-action" type="button" data-mark-read>Mark all as read</button>')}
@@ -1441,9 +1542,9 @@ function messagesView() {
   const selectedId = decodeURIComponent(location.hash.split('/')[1] || '');
   const selected = groups.find(group => String(group.user.id) === selectedId) || (selectedId && String(state.publicProfile?.id) === selectedId ? { user: state.publicProfile, messages: [] } : null) || (selectedId && state.leaderboard.find(user => String(user.id) === selectedId) ? { user: state.leaderboard.find(user => String(user.id) === selectedId), messages: [] } : null);
   const items = groups.map(group => { const last = group.messages.at(-1); return `<button class="message-item ${String(group.user.id) === selectedId ? 'active' : ''}" type="button" data-conversation="${group.user.id}"><span class="avatar">${escapeHtml((group.user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(group.user.displayName || 'Member')}</strong><p>${escapeHtml(last?.text || '')}</p><small>${timeLabel(new Date(last?.createdAt).getTime())}</small></div></button>`; }).join('');
-  const stage = selected ? `<section class="dm-chat"><header><span class="avatar">${escapeHtml((selected.user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(selected.user.displayName)}</strong><small>${escapeHtml(selected.user.handle || '')}</small></div><button type="button" data-open-user="${selected.user.id}">Profile</button></header><div class="chat-stream">${selected.messages.map(message => `<article class="dm-bubble ${String(message.sender?.id) === String(sessionUser?.id) ? 'sent' : 'received'}"><p>${escapeHtml(message.text)}</p><small>${timeLabel(new Date(message.createdAt).getTime())}</small></article>`).join('')}</div><form id="dmChatForm"><textarea name="message" maxlength="2000" required placeholder="Message ${escapeHtml(selected.user.displayName)}…"></textarea><input type="hidden" name="recipient" value="${selected.user.id}" /><button class="primary-action" type="submit">Send</button></form></section>` : '<div class="stage-empty"><div class="empty-icon">✉</div><h2>Select a conversation</h2><p>Choose an existing chat or start a new one.</p></div>';
+  const stage = selected ? `<section class="dm-chat"><header><button class="messages-back" type="button" data-messages-back aria-label="Back to conversations">←</button><span class="avatar">${escapeHtml((selected.user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(selected.user.displayName)}</strong><small>${escapeHtml(selected.user.handle || '')}</small></div><button type="button" data-open-user="${selected.user.id}">Profile</button></header><div class="chat-stream">${selected.messages.map(message => `<article class="dm-bubble ${String(message.sender?.id) === String(sessionUser?.id) ? 'sent' : 'received'}"><p>${escapeHtml(message.text)}</p><small>${timeLabel(new Date(message.createdAt).getTime())}</small></article>`).join('')}</div><form id="dmChatForm"><textarea name="message" maxlength="2000" required placeholder="Message ${escapeHtml(selected.user.displayName)}…"></textarea><input type="hidden" name="recipient" value="${selected.user.id}" /><button class="primary-action" type="submit">Send</button></form></section>` : '<div class="stage-empty"><div class="empty-icon">✉</div><h2>Select a conversation</h2><p>Choose an existing chat or start a new one.</p></div>';
   return `${pageHeader('DIRECT MESSAGES', 'Messages', 'Private conversations with people you connect with on Callout.', '<button class="primary-action" type="button" data-new-message>＋ New message</button>')}
-    <section class="messages-layout">
+    <section class="messages-layout ${selected ? 'has-conversation' : ''}">
       <aside class="conversation-list"><label><svg><use href="#i-search"></use></svg><input type="search" placeholder="Search messages" aria-label="Search messages" /></label>${items || '<div class="mini-empty"><span>✉</span><strong>No conversations</strong><p>Your message history will appear here.</p></div>'}</aside>
       <div class="conversation-stage" id="conversationStage">${stage}</div>
     </section>`;
@@ -1473,6 +1574,7 @@ function savedBoardIcon(icon = 'folder') {
 }
 
 function savedPinCard(post, board) {
+  const unlocked = Boolean(post.resultsUnlocked);
   const total = Number(post.alrightVotes || 0) + Number(post.cringeVotes || 0); const based = total ? Math.round(Number(post.alrightVotes || 0) / total * 100) : 50; const hot = 100 - based;
   const media = (post.media || [])[0];
   const mediaMarkup = media ? `<div class="saved-pin-media">${media.type === 'video' ? `<video src="${escapeHtml(media.url)}" muted playsinline preload="metadata"></video><span>VIDEO</span>` : `<img src="${escapeHtml(media.url)}" alt="${escapeHtml(media.alt || 'Saved post media')}" loading="lazy" />`}</div>` : '';
@@ -1480,8 +1582,8 @@ function savedPinCard(post, board) {
     <span class="saved-pin-tab">${savedBoardIcon(board?.icon || savedPostBoard(post.id)?.icon || 'folder')}</span>
     <header>${postAvatarMarkup(post)}<div><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><small>${timeLabel(post.createdAt)} · ${escapeHtml(post.category || 'Callout')}</small></div><button class="icon-button save-button saved" type="button" data-save-post="${post.id}" aria-label="Remove from saved"><svg><use href="#i-bookmark"></use></svg></button></header>
     <button class="saved-pin-open" type="button" data-open-take="${post.id}"><strong>${formatPostContent(post.text)}</strong>${mediaMarkup}</button>
-    <div class="saved-pin-vote" style="--based:${based}%"><span>BASED ${based}%</span><span>HOT TAKE ${hot}%</span></div>
-    <footer><span>${total.toLocaleString()} vote${total === 1 ? '' : 's'}</span><span>◯ ${Number(post.commentCount || 0).toLocaleString()}</span><button type="button" data-move-saved-post="${post.id}">Move</button></footer>
+    ${unlocked ? `<div class="saved-pin-vote" style="--based:${based}%"><span>BASED ${based}%</span><span>HOT TAKE ${hot}%</span></div>` : '<p class="saved-locked-result">Vote on this Take to reveal the result.</p>'}
+    <footer><span>${unlocked ? total.toLocaleString()+' votes' : 'Result hidden'}</span><span>◯ ${Number(post.commentCount || 0).toLocaleString()}</span><button type="button" data-move-saved-post="${post.id}">Move</button></footer>
   </article>`;
 }
 
@@ -1743,9 +1845,9 @@ function adminControlView() {
     ['People', state.leaderboard.length], ['Posts', state.posts.length], ['Signals', state.anonymousPosts.length],
     ['Topics', state.topics.length], ['Guilds', state.guilds.length], ['Battles', state.battles.length]
   ];
-  const featureControls = `<section class="feature-kills admin-console-block"><header><strong>Beta flags & emergency kill switches</strong><small>Technical controls remain separate from public feature visibility.</small></header><div>${controls.features.filter(feature => feature.key !== 'battles').map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} /></label>`).join('')}</div></section>`;
+  const featureControls = `<section class="feature-kills admin-console-block"><header><strong>Beta flags & emergency kill switches</strong><small>Technical controls remain separate from public feature visibility.</small></header><div>${controls.features.filter(feature => !['battles', 'heat-wheel', 'take-rush'].includes(feature.key)).map(feature => `<label><span><b>${escapeHtml(feature.key)}</b><small>${feature.overridden ? 'Override active' : `Default: ${feature.defaultEnabled ? 'on' : 'off'}`}</small></span><input type="checkbox" data-feature-control="${escapeHtml(feature.key)}" ${feature.enabled ? 'checked' : ''} /></label>`).join('')}</div></section>`;
   const battleFeature = controls.features.find(feature => feature.key === 'battles') || { key: 'battles', enabled: Boolean(state.features.battles) };
-  const waitingFeatures = `<section class="waiting-features admin-console-block"><header><div><span class="section-kicker">PUBLIC VISIBILITY</span><h2>Waiting Features</h2><p>Park a feature without deleting its code, records, or future potential.</p></div><span class="admin-lock">OWNER ONLY</span></header><div class="waiting-feature-list"><article class="${battleFeature.enabled ? 'is-visible' : 'is-waiting'}"><span class="waiting-feature-icon">⚔</span><div><span class="feature-status">${battleFeature.enabled ? 'VISIBLE' : 'WAITING'}</span><h3>Battles</h3><p>Tournament brackets, sealed submissions, finalist selection, and community voting remain safely stored.</p><small>${state.battles.length} existing battle${state.battles.length === 1 ? '' : 's'} preserved</small></div><div class="waiting-feature-actions"><button type="button" data-preview-feature="battles">Preview Battles</button><button class="primary-action" type="button" data-waiting-feature="battles" data-next-enabled="${battleFeature.enabled ? 'false' : 'true'}">${battleFeature.enabled ? 'Hide from site' : 'Show on site'}</button></div></article></div></section>`;
+  const waitingFeatures = `<section class="waiting-features admin-console-block"><header><div><h2>Waiting Features</h2><p>Hidden features keep their code and records.</p></div><span class="admin-lock">OWNER ONLY</span></header><div class="waiting-feature-list">${[['battles','Battles'],['heat-wheel','Heat Wheel'],['take-rush','Take Rush']].map(([key,name]) => { const enabled = controls.features.find(f => f.key === key)?.enabled ?? Boolean(state.features[key]); return `<article class="${enabled ? 'is-visible' : 'is-waiting'}"><div><h3>${name}</h3><p>${key === 'battles' ? 'Community tournaments. Records are preserved.' : 'Practice prototype only. No real Heat is awarded.'}</p><span class="status-badge">${enabled ? 'VISIBLE' : 'WAITING'}</span></div><button type="button" class="primary-action" data-waiting-feature="${key}" data-next-enabled="${!enabled}">${enabled ? 'Hide from site' : 'Show on site'}</button><button type="button" class="secondary-action" data-preview-feature="${key}">Preview ${name}</button></article>`; }).join('')}</div></section>`;
   const topicColumn = (title, kind, items) => `<section class="admin-topic-column"><header><span><i></i><strong>${title}</strong></span><b>${items.length}</b></header><div>${items.length ? items.map(topic => `<article style="--topic-accent:${escapeHtml(topic.accentColor || '#7444e8')}">${topic.artworkUrl ? `<img src="${escapeHtml(topic.artworkUrl)}" alt="" />` : '<span class="topic-fallback">◉</span>'}<div><small>${escapeHtml(kind)}</small><strong>${escapeHtml(topic.title)}</strong><p>${escapeHtml(topic.description || 'No description yet.')}</p><time>${new Date(topic.startsAt).toLocaleDateString()} – ${new Date(topic.endsAt).toLocaleDateString()}</time></div><button type="button" data-open-topic="${topic.id}">${kind === 'VAULTED' ? 'Open Vault' : 'View Topic'}</button></article>`).join('') : `<p class="mini-empty">No ${title.toLowerCase()}.</p>`}</div></section>`;
   const topicManager = `<section class="admin-topic-manager"><div class="admin-topic-board">${topicColumn('Live now', 'LIVE', state.topics.filter(topic => topic.state === 'live'))}${topicColumn('Scheduled', 'UPCOMING', state.topics.filter(topic => topic.state === 'scheduled'))}${topicColumn('Time Vaults', 'VAULTED', state.topics.filter(topic => topic.state === 'vaulted'))}</div><form class="admin-topic-editor" id="adminTopicForm"><span class="section-kicker">TOPIC EDITOR</span><h2>Create Limited-Time Topic</h2><label>Title<input name="title" maxlength="100" required placeholder="Topic title" /></label><label>Description<textarea name="description" maxlength="500" placeholder="What is this moment about?"></textarea></label><div><label>Start time<input name="startsAt" type="datetime-local" required /></label><label>End time<input name="endsAt" type="datetime-local" required /></label></div><button class="primary-action" type="submit">Schedule Topic</button></form></section>`;
   const staff = `<section class="admin-console-block"><header><div><span class="section-kicker">AUTHORIZED ACCOUNTS</span><h2>People & Staff</h2></div><span class="admin-lock">OWNER MANAGED</span></header><div class="admin-staff-list">${controls.staff.map(user => `<article><span class="avatar heat-frame ${escapeHtml(user.heatTier?.className || 'heat-fresh')}">${user.avatarUrl ? `<img src="${escapeHtml(user.avatarUrl)}" alt="" />` : escapeHtml((user.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.handle || user.email || '')}</small></div><b>${escapeHtml(user.staffRole)}</b></article>`).join('') || '<p>Only the configured owner account has console access.</p>'}</div><aside class="admin-security-note"><strong>Private console rule</strong><p>Analytics, automation, monetisation, and product controls are restricted to the email configured in <code>ADMIN_EMAILS</code>. Ordinary accounts never appear here.</p></aside></section>`;
@@ -1800,7 +1902,7 @@ function analyticsView() {
 }
 
 function authView() {
-  if (sessionUser) return `${pageHeader('SECURITY', 'Account access', 'Your session is protected by short-lived HTTP-only cookies.')}<section class="auth-session-card">${sessionUser.avatarUrl ? `<span class="avatar"><img src="${escapeHtml(sessionUser.avatarUrl)}" alt="" /></span>` : '<span class="avatar">✓</span>'}<div><span class="section-kicker">SIGNED IN</span><h2>${escapeHtml(sessionUser.displayName)}</h2><p>${escapeHtml(sessionUser.email)}</p></div><button class="quiet-action" type="button" data-logout>Sign out</button></section>`;
+  if (sessionUser && !state.addingAccount) return `${pageHeader('SECURITY', 'Account access', 'Your session is protected by short-lived HTTP-only cookies.')}<section class="auth-session-card">${sessionUser.avatarUrl ? `<span class="avatar"><img src="${escapeHtml(sessionUser.avatarUrl)}" alt="" /></span>` : '<span class="avatar">✓</span>'}<div><span class="section-kicker">SIGNED IN</span><h2>${escapeHtml(sessionUser.displayName)}</h2><p>${escapeHtml(sessionUser.email)}</p></div><button class="quiet-action" type="button" data-logout>Sign out</button></section>`;
   return `${pageHeader('SECURE ACCESS', 'Join Callout', 'Sign in with email or Google. Authentication tokens are never stored in localStorage.')}
     <section class="auth-grid"><form class="auth-card" id="loginForm"><span class="section-kicker">WELCOME BACK</span><h2>Sign in</h2><label>Email<input type="email" name="email" autocomplete="email" required /></label><label>Password<input type="password" name="password" autocomplete="current-password" required minlength="8" /></label><button class="primary-action" type="submit">Sign in</button><a class="google-auth" href="/api/auth/google">G&nbsp; Continue with Google</a></form>
     <form class="auth-card" id="signupForm"><span class="section-kicker">NEW ACCOUNT</span><h2>Create account</h2><label>Display name<input name="displayName" maxlength="40" required /></label><label>Email<input type="email" name="email" autocomplete="email" required /></label><label>Password<input type="password" name="password" autocomplete="new-password" required minlength="8" /></label><label class="age-check"><input type="checkbox" name="ageConfirmed" required /><span>I confirm I am 13 years or older.</span></label><button class="primary-action" type="submit">Create account</button><a class="google-auth" href="/api/auth/google">G&nbsp; Sign up with Google</a></form></section>
@@ -1814,6 +1916,9 @@ function featureUnavailableView(name) {
 }
 
 function renderRoute() {
+  CalloutDiscovery.dispose();
+  viewRenderers.swipe = () => CalloutDiscovery.view('swipe');
+  viewRenderers.loops = () => CalloutDiscovery.view('loops');
   CalloutOriginals.dispose();
   viewRenderers['heat-wheel'] = () => CalloutOriginals.view('wheel');
   viewRenderers['take-rush'] = () => CalloutOriginals.view('rush');
@@ -1821,17 +1926,24 @@ function renderRoute() {
   const previewingHiddenFeature = Boolean(
     sessionUser?.isAdmin && state.featurePreview === route && !state.features?.[route]
   );
-  const featureBlocked = route === 'battles' && !state.features.battles && !previewingHiddenFeature;
+  const featureNames = { battles: 'Battles', 'heat-wheel': 'Heat Wheel', 'take-rush': 'Take Rush' };
+  const featureBlocked = route in featureNames && !state.features[route] && !previewingHiddenFeature;
   document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.route === route || (['customize','accessibility'].includes(route) && item.dataset.route === 'settings') || (route === 'take' && item.dataset.route === 'home') || (route === 'guild' && item.dataset.route === 'guilds') || (route === 'heat' && item.dataset.route === 'profile')));
   document.querySelector('#sidebar').classList.remove('open');
-  mainContent.innerHTML = featureBlocked ? featureUnavailableView('Battles') : `${previewingHiddenFeature ? '<aside class="feature-preview-banner"><strong>OWNER PREVIEW</strong><span>Battles is hidden from the public website.</span><button type="button" data-exit-feature-preview>Exit preview</button></aside>' : ''}${viewRenderers[route]()}`;
+  mainContent.innerHTML = featureBlocked ? featureUnavailableView(featureNames[route]) : `${previewingHiddenFeature ? '<aside class="feature-preview-banner"><strong>OWNER PREVIEW</strong><span>This feature is hidden from the public website.</span><button type="button" data-exit-feature-preview>Exit preview</button></aside>' : ''}${viewRenderers[route]()}`;
   mainContent.dataset.route = route;
   document.body.dataset.route = route;
   renderSavedBoardsRail(route);
   updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
-  if (route === 'heat-wheel' || route === 'take-rush') CalloutOriginals.mount(route === 'take-rush' ? 'rush' : 'wheel', mainContent);
+  if (route === 'swipe' || route === 'loops') CalloutDiscovery.mount(route, mainContent, {
+    api: apiFetch, map: mapPost, escape: escapeHtml, post: postTemplate, bind: bindPostInteractions,
+    account: () => sessionUser ? currentUserId() : '',
+    signin: () => { navigate('auth'); showToast('Sign in to vote.'); },
+    remember: posts => { state.discoveryPosts = posts; }
+  });
+  if (!featureBlocked && (route === 'heat-wheel' || route === 'take-rush')) CalloutOriginals.mount(route === 'take-rush' ? 'rush' : 'wheel', mainContent);
   renderProfileHeatFrame();
   if (routeAllowsAds()) initializeAds(mainContent);
   trackPageView();
@@ -1852,7 +1964,7 @@ function renderFilteredPosts(category = 'All', search = '') {
 }
 
 function findPostById(id) {
-  return [...state.posts, ...state.anonymousPosts, ...state.trendingPosts, ...state.savedPosts, ...state.guildPosts].find(item => String(item.id) === String(id));
+  return [...(state.discoveryPosts || []), ...state.posts, ...state.anonymousPosts, ...state.trendingPosts, ...state.savedPosts, ...state.guildPosts].find(item => String(item.id) === String(id));
 }
 
 function bindPostInteractions() {
@@ -1914,6 +2026,11 @@ function prepareBattleHostForm() {
 }
 
 function bindViewInteractions(route) {
+  document.querySelector('[data-messages-back]')?.addEventListener('click',()=>navigate('messages'));
+  document.querySelector('.conversation-list input[type="search"]')?.addEventListener('input',event=>{
+    const search=event.target.value.trim().toLowerCase();
+    document.querySelectorAll('.message-item').forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(search);});
+  });
   bindPostInteractions();
   prepareBattleHostForm();
   document.querySelectorAll('[data-new-saved-board]').forEach(button => button.addEventListener('click', () => openSavedBoardEditor()));
@@ -2118,10 +2235,10 @@ function bindViewInteractions(route) {
       await apiFetch(`/api/admin/features/${encodeURIComponent(button.dataset.waitingFeature)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
       await Promise.all([hydrateFeatures(), hydrateAdminControl()]);
       if (enabled) await hydrateBigPatch();
-      renderRoute(); showToast(enabled ? 'Battles is now visible.' : 'Battles moved to Waiting Features.');
+      renderRoute(); showToast(enabled ? 'Feature is now visible.' : 'Feature moved to Waiting Features.');
     } catch (error) { button.disabled = false; showToast(error.message); }
   }));
-  document.querySelectorAll('[data-preview-feature="battles"]').forEach(button => button.addEventListener('click', () => { state.featurePreview = 'battles'; navigate('battles'); }));
+  document.querySelectorAll('[data-preview-feature]').forEach(button => button.addEventListener('click', () => { state.featurePreview = button.dataset.previewFeature; navigate(state.featurePreview); }));
   document.querySelector('[data-exit-feature-preview]')?.addEventListener('click', () => { state.featurePreview = ''; navigate('admin/waiting'); });
   document.querySelectorAll('[data-open-admin-post]').forEach(button => button.addEventListener('click', () => navigate(`take/${button.dataset.openAdminPost}`)));
   document.querySelectorAll('[data-layout-move]').forEach(button => button.addEventListener('click', () => {
@@ -3078,7 +3195,7 @@ async function loginUser(event) {
   const form = event.currentTarget;
   try {
     const payload = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: sanitizeInput(form.elements.email.value), password: form.elements.password.value }) }, false);
-    applySessionUser(payload.user); trackEvent('login', { method: 'email' }); await Promise.all([hydratePosts(), hydrateAccountData(), hydrateGuilds(), hydrateLeaderboard()]); navigate('home'); showToast('Signed in securely.');
+    finishAccountChange();
   } catch (error) { showToast(error.message); }
 }
 
@@ -3087,7 +3204,7 @@ async function signupUser(event) {
   const form = event.currentTarget;
   try {
     const payload = await apiFetch('/api/auth/signup', { method: 'POST', body: JSON.stringify({ displayName: sanitizeInput(form.elements.displayName.value), email: sanitizeInput(form.elements.email.value), password: form.elements.password.value, ageConfirmed: form.elements.ageConfirmed.checked }) }, false);
-    applySessionUser(payload.user); trackEvent('sign_up', { method: 'email' }); await Promise.all([hydrateAccountData(), hydrateLeaderboard()]); navigate('settings'); showToast('Account created. Customize your profile.');
+    finishAccountChange();
   } catch (error) { showToast(error.message); }
 }
 
@@ -3112,13 +3229,11 @@ async function confirmPasswordReset(event) {
 }
 
 async function logoutUser() {
-  try { await apiFetch('/api/auth/logout', { method: 'POST' }, false); } catch { /* clear local session regardless */ }
-  sessionUser = null;
-  messageStream?.close(); messageStream = null;
-  state.profile = { ...defaultState.profile, socialLinks: { ...defaultState.profile.socialLinks } };
-  state.savedPostIds = []; state.notifications = []; state.messages = []; state.friendships = [];
-  state.userStanding = null; state.activeGuild = null; state.guildPosts = []; state.guildMessages = []; state.publicProfile = null; state.ownProfileData = null;
-  updateHeaderProfile(); await Promise.all([hydratePosts(), hydrateGuilds(), hydrateLeaderboard()]); renderRoute(); showToast('Signed out.');
+  if (!confirmAccountChange()) return;
+  try {
+    await apiFetch('/api/auth/logout', { method:'POST' }, false);
+    finishAccountChange();
+  } catch(error) { showToast(error.message); }
 }
 
 function activeTake() {
@@ -3331,11 +3446,15 @@ document.querySelectorAll('[data-leader-period]').forEach(button => button.addEv
   await hydrateLeaderboard();
   if (currentRoute() === 'leaderboards') renderRoute();
 }));
-document.querySelector('#profileButton').addEventListener('click', () => navigate('profile'));
+document.querySelector('#profileButton').addEventListener('click', openAccountMenu);
+document.querySelector('#accountNav').addEventListener('click',event=>{
+  if(sessionUser){event.preventDefault();event.stopImmediatePropagation();openAccountMenu();}
+},true);
 document.querySelector('#notificationBell').addEventListener('click', () => navigate(sessionUser ? 'notifications' : 'auth'));
 document.querySelector('#mobileMenu').addEventListener('click', () => document.querySelector('#sidebar').classList.toggle('open'));
 function openComposerForUser() {
   if (!sessionUser) { navigate('auth'); return showToast('Create an account or sign in to post a take.'); }
+  if (currentRoute() === 'loops') document.querySelector('#postFormat').value = 'loop';
   if (!composerRequestId) composerRequestId = crypto.randomUUID();
   const topicSelect = document.querySelector('#takeLiveTopic');
   if (topicSelect) topicSelect.innerHTML = `<option value="">None</option>${state.topics.filter(topic => topic.state === 'live').map(topic => `<option value="${escapeHtml(topic.id)}">${escapeHtml(topic.title)}</option>`).join('')}`;
@@ -3371,7 +3490,7 @@ async function prepareVideo(file) {
   if (file.size > 8 * 1024 * 1024) throw new Error('Short videos must be 8 MB or smaller.');
   const meta = await videoMetadata(file);
   if (!Number.isFinite(meta.duration) || meta.duration > 25) throw new Error('Videos must be 25 seconds or shorter.');
-  if (meta.aspectRatio < .95 || meta.aspectRatio > 1.05) throw new Error('Videos must use a square 1:1 aspect ratio.');
+  if ((meta.aspectRatio < .95 || meta.aspectRatio > 1.05) && Math.abs(meta.aspectRatio - 9/16) > .006) throw new Error('Videos must be square or vertical 9:16.');
   return { type: 'video', url: await fileToDataUrl(file), alt: file.name, duration: Math.round(meta.duration * 10) / 10, aspectRatio: meta.aspectRatio };
 }
 
@@ -3441,6 +3560,9 @@ function updateComposerCharacterCount(length = document.querySelector('#takeText
 }
 
 function updateComposerPreview() {
+  const loopMode = document.querySelector('#postFormat').value === 'loop';
+  composer.classList.toggle('is-loop-composer', loopMode);
+  document.querySelector('#loopHint').hidden = !loopMode;
   const title = document.querySelector('#takeTitle')?.value.trim() || '';
   const text = document.querySelector('#takeText')?.value.trim() || '';
   const category = document.querySelector('#takeCategory')?.value || 'Movies';
@@ -3532,6 +3654,7 @@ async function finishPublishing(success, message = 'Your take is live.') {
   overlay.hidden = true;
 }
 
+document.querySelector('#postFormat').addEventListener('change', updateComposerPreview);
 document.querySelector('#openComposer').addEventListener('click', openComposerForUser);
 document.querySelector('[data-close-composer]').addEventListener('click', () => composer.close());
 document.querySelector('#takeMedia').addEventListener('change', handleTakeMedia);
@@ -3585,6 +3708,7 @@ async function submitComposer(draft = false) {
   if (media.length > 5) return showToast('A take can contain up to 5 media items.');
   const scheduledValue = document.querySelector('#takeSchedule').value;
   const payload = {
+    format: document.querySelector('#postFormat').value,
     clientRequestId: composerRequestId || (composerRequestId = crypto.randomUUID()), title, description, content: [title, description].filter(Boolean).join('\n\n'), category, media, draft, poll, contentType: poll ? 'poll' : media[0]?.type || 'text',
     visibility: document.querySelector('#takeAudience').value,
     anonymous: Boolean(document.querySelector('#takeAnonymous')?.checked),
@@ -3594,6 +3718,9 @@ async function submitComposer(draft = false) {
     embedUrl: pendingExternalEmbed?.url || document.querySelector('#takeEmbed').value.trim(), externalEmbed: pendingExternalEmbed, scheduledPublishedAt: scheduledValue ? new Date(scheduledValue).toISOString() : null
   };
   const instantPublish = !draft && !scheduledValue;
+  if(payload.format === 'loop' && (media.length !== 1 || media[0]?.type !== 'video' ||
+    Math.abs(media[0].aspectRatio - 9/16) > .006 || poll || payload.embedUrl || payload.externalEmbed))
+    return showToast('A Loop needs one 9:16 video up to 25 seconds, without polls or extra attachments.');
   const temporaryId = instantPublish ? `pending-${composerRequestId}` : '';
   if (instantPublish) {
     const pendingPost = mapPost({
@@ -3640,6 +3767,7 @@ async function submitComposer(draft = false) {
   pendingMedia = []; pendingExternalEmbed = null; renderMediaPreview(); document.querySelector('#gifUrlInput').value = ''; document.querySelector('#gifUrlInput').hidden = true; document.querySelector('#externalPostUrl').value = ''; document.querySelector('#externalAttachComposer').hidden = true;
   updateComposerCharacterCount(0);
   document.querySelector('#composerForm').reset(); document.querySelector('#pollBuilder').hidden = true;
+  document.querySelector('#postFormat').value = 'normal';
   composerRequestId = ''; setComposerBusy(false); updateComposerPreview();
   composer.close();
   if (!draft) {

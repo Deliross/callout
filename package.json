@@ -24,6 +24,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
+    "ffprobe-static": "^3.1.0",
     "helmet": "^8.1.0",
     "html2canvas": "1.4.1",
     "joi": "^18.0.2",

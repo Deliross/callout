@@ -1,5 +1,6 @@
 ﻿import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import { verifyLoopMedia } from './loopMedia.mjs';
 import { User } from './models/User.mjs';
 import { Post } from './models/Post.mjs';
 import { Report } from './models/Report.mjs';
@@ -242,6 +243,7 @@ function structuredPostValues(values = {}) {
 }
 
 export async function createPost(authorId, values) {
+  await verifyLoopMedia(values);
   values = structuredPostValues(values);
   values = await prepareAnonymousPost(authorId, values);
   const publishedNow = !values.draft && (!values.scheduledPublishedAt || new Date(values.scheduledPublishedAt) <= new Date());
@@ -416,6 +418,54 @@ export async function adminUpdatePost(postId, adminId, values) {
   Object.assign(post, { title: values.title, description: values.description, content: values.content, category: values.category, visibility: values.visibility, updatedAt: new Date() });
   post.adminMetrics = { basedAdjustment: 0, cringeAdjustment: 0, impressionsAdjustment: 0, editedAt: new Date(), editedBy: String(adminId) };
   return { ...serializePost(post), author: publicIdentity(memoryUsers.get(String(post.author))), adminEditedAt: post.adminMetrics.editedAt };
+}
+
+export async function discoverPosts(userId = '', { mode = 'swipe', cursor = '', limit = 12 } = {}) {
+  if (!['swipe', 'loops'].includes(mode)) throw Object.assign(new Error('Unknown discovery mode.'), {status:400});
+  limit = Math.min(24, Math.max(1, Number(limit) || 12));
+  let after;
+  if (cursor) {
+    try {
+      after = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+      if (!Number.isFinite(Date.parse(after.date)) || typeof after.id !== 'string' ||
+          (connected && !mongoose.isValidObjectId(after.id))) throw new Error();
+    } catch { throw Object.assign(new Error('Invalid discovery cursor.'), {status:400}); }
+  }
+  const now = new Date();
+  let posts;
+  if (connected) {
+    const clauses = [
+      { guild: null, anonymous: { $ne:true }, draft: { $ne:true }, visibility: { $in:['public',null] } },
+      { $or: [{ scheduledPublishedAt:null }, { scheduledPublishedAt:{$lte:now} }] }
+    ];
+    if (mode === 'loops') clauses.push({format:'loop'});
+    else {
+      clauses.push({ 'media.0':{$exists:false}, externalEmbed:null, embedUrl:{$in:['',null]}, poll:null });
+      if (userId) clauses.push({'votes.user':{$ne:userId}});
+    }
+    if (after) clauses.push({$or:[{createdAt:{$lt:new Date(after.date)}},{createdAt:new Date(after.date),_id:{$lt:after.id}}]});
+    posts = await Post.find({$and:clauses}).sort({createdAt:-1,_id:-1}).limit(limit+1).populate('author','displayName handle avatarUrl isAutomated automationPersona heatScore cringeScore').lean();
+  } else {
+    posts = [...memoryPosts.values()].filter(post =>
+      !post.guild && !post.anonymous && !post.draft && (post.visibility || 'public') === 'public' &&
+      (!post.scheduledPublishedAt || new Date(post.scheduledPublishedAt) <= now) &&
+      (mode === 'loops' ? post.format === 'loop' : !(post.media?.length || post.externalEmbed || post.embedUrl || post.poll) &&
+        !(post.votes || []).some(v => String(v.user) === String(userId))) &&
+      (!after || new Date(post.createdAt) < new Date(after.date) ||
+        (+new Date(post.createdAt) === +new Date(after.date) && String(post.id) < after.id))
+    ).sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt) || String(b.id).localeCompare(String(a.id))).slice(0,limit+1);
+  }
+  const more = posts.length > limit;
+  posts = posts.slice(0,limit);
+  const last = posts.at(-1);
+  const counts = connected ? await Comment.aggregate([{ $match:{post:{$in:posts.map(p=>p._id)}} },{$group:{_id:'$post',count:{$sum:1}}}]) : [];
+  const countMap = new Map(counts.map(c=>[String(c._id),c.count]));
+  return {
+    posts:posts.map(post=>({...serializePost(post,userId),
+      author:postAuthor(post,userId,connected ? post.author : memoryUsers.get(String(post.author))),
+      commentCount:connected ? countMap.get(String(post._id)) || 0 : [...memoryComments.values()].filter(c=>c.post===post.id).length})),
+    nextCursor:more && last ? Buffer.from(JSON.stringify({date:new Date(last.createdAt).toISOString(),id:String(last._id || last.id)})).toString('base64url') : null
+  };
 }
 
 export async function listPosts(userId = '', { trending = false } = {}) {
@@ -643,6 +693,13 @@ export async function deleteComment(commentId, requesterId, { isAdmin = false } 
 }
 
 export async function updatePost(postId, authorId, values) {
+  const existing = connected ? await Post.findOne({ _id: postId, author: authorId }).lean() : memoryPosts.get(String(postId));
+  if (!existing || String(existing.author) !== String(authorId)) return null;
+  if ((values.format ?? existing.format) === 'loop') {
+    const candidate = { ...existing, ...values, format: 'loop' };
+    await verifyLoopMedia(candidate);
+    values = { ...values, format: 'loop', media: candidate.media };
+  }
   values = structuredPostValues(values);
   if (connected) return Post.findOneAndUpdate({ _id: postId, author: authorId }, values, { new: true, runValidators: true }).exec();
   const post = memoryPosts.get(String(postId));

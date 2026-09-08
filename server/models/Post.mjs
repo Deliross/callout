@@ -46,6 +46,7 @@ const ttsAudioSchema = new mongoose.Schema({
 }, { _id: false });
 
 const postSchema = new mongoose.Schema({
+  format: { type: String, enum: ['normal', 'loop'], default: 'normal', index: true },
   author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   clientRequestId: { type: String, default: '', maxlength: 80 },
   guild: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },

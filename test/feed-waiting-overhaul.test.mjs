@@ -46,7 +46,7 @@ test('Battles starts waiting and the owner controls it through a persistent show
   assert.match(app, /Waiting Features/);
   assert.match(app, /Hide from site/);
   assert.match(app, /Show on site/);
-  assert.match(app, /featureUnavailableView\('Battles'\)/);
+  assert.match(app, /featureUnavailableView\(featureNames\[route\]\)/);
   assert.match(css, /\.waiting-feature-list article/);
   assert.match(css, /\.main-content\[data-route="home"\],\.main-content\[data-route="trending"\]\s*\{[^}]*820px/);
 });

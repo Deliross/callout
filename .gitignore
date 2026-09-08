@@ -3,3 +3,4 @@ node_modules/
 npm-debug.log*
 pnpm-debug.log*
 *.log
+artifacts/

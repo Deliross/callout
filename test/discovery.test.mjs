@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createUser,createPost,discoverPosts,voteOnPost} from '../server/repository.mjs';
+test('Swipe discovery paginates, excludes restricted posts and hides results until voting',async()=>{
+  const author=await createUser({email:'discovery-author@example.com',displayName:'Author'});
+  const viewer=await createUser({email:'discovery-viewer@example.com',displayName:'Viewer'});
+  const id=user=>String(user.id || user._id);
+  const base={title:'A public opinion',content:'A public opinion',category:'Life',media:[],visibility:'public'};
+  const first=await createPost(id(author),base);
+  await createPost(id(author),{...base,title:'Another public opinion'});
+  await createPost(id(author),{...base,title:'Private',visibility:'friends'});
+  await createPost(id(author),{...base,title:'Draft',draft:true});
+  await createPost(id(author),{...base,title:'Scheduled',scheduledPublishedAt:new Date(Date.now()+86400000)});
+  const page=await discoverPosts(id(viewer),{mode:'swipe',limit:1});
+  assert.equal(page.posts.length,1);assert.ok(page.nextCursor);
+  assert.equal(page.posts[0].voteSummary.locked,true);
+  assert.equal(page.posts[0].alrightVotes,null);
+  const next=await discoverPosts(id(viewer),{mode:'swipe',limit:1,cursor:page.nextCursor});
+  assert.equal(next.posts.length,1);assert.notEqual(next.posts[0].id,page.posts[0].id);
+  assert.equal(next.nextCursor,null);
+  await voteOnPost(String(first.id || first._id),id(viewer),'alright');
+  const remaining=await discoverPosts(id(viewer),{mode:'swipe'});
+  assert.equal(remaining.posts.length,1);
+  assert.equal((await discoverPosts('',{mode:'loops'})).posts.length,0);
+  await assert.rejects(discoverPosts('',{cursor:'bad'}),/cursor/);
+});

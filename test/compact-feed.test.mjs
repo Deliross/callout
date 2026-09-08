@@ -24,10 +24,13 @@ test('home feed stays compact and does not render Callout emoji reactions', () =
 });
 
 test('sidebar navigation is grouped into the approved sections', () => {
-  for (const section of ['Discover', 'Social', 'Originals', 'Account']) {
+  for (const section of ['Discover', 'Social', 'Account']) {
     assert.match(html, new RegExp(`>${section}<`));
   }
   assert.match(html, /data-route="notifications"/);
+  assert.doesNotMatch(html, />Originals</);
+  assert.match(html, /data-route="swipe"/);
+  assert.match(html, /data-route="loops"/);
   assert.match(html, /styles\.css\?v=20260906-timeline/);
-  assert.match(html, /app\.js\?v=20260906-edge/);
+  assert.match(html, /app\.js\?v=20260908-social/);
 });

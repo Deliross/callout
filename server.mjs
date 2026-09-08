@@ -16,6 +16,8 @@ import { analyticsDataConfigured, getAnalyticsDashboard } from './server/analyti
 import { adsenseOAuthConfigured, completeAdsenseAuthorization, createAdsenseAuthorizationUrl, getAdsenseDashboard } from './server/adsense.mjs';
 import { botStatus, initializeBots, runBotCycle, setBotEnabled } from './server/bots.mjs';
 import { buildExternalEmbed } from './server/externalEmbeds.mjs';
+import { discoverPosts } from './server/repository.mjs';
+import { BROWSER_COOKIE, browserKey, browserSessionKey, readBrowser, registerBrowserAccount, removeBrowserAccount, deleteBrowser, clearBrowserCookie, requireAccountCsrf } from './server/browserAccounts.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
 import { publicLibraryPage, publicMemberPage, publicNotFoundPage, publicPage, publicPagePaths, publicTakePage, rootSeoMarkup, rssFeed, seoHead, siteOrigin, takePreviewSvg } from './server/publicPages.mjs';
 import {
@@ -136,14 +138,19 @@ const ideaLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHead
 const embedLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many attachment previews. Try again in a minute.' } });
 const ttsLimiter = rateLimit({ windowMs: 24 * 60 * 60 * 1000, limit: Number(process.env.TTS_DAILY_LIMIT || 8), standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Daily voice generation limit reached. Try again tomorrow.' } });
 
-async function establishSession(res, user) {
+async function establishSession(req, res, user) {
   const userId = String(user._id || user.id);
-  const accessToken = signAccessToken(userId);
+  const browser = await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+  if (browser && browser.accounts.length >= 5 && !browser.accounts.some(a=>a.userId===userId))
+    throw Object.assign(new Error('This browser already has five accounts. Remove one first.'), {status:409});
   const refreshToken = signRefreshToken(userId);
   const account = await findUserById(userId, true);
   const existingSessions = Array.isArray(account?.refreshTokenHashes) ? account.refreshTokenHashes : [];
-  await updateUser(userId, { refreshTokenHashes: [...existingSessions.slice(-7), await hashPassword(refreshToken)] });
-  setAuthCookies(res, accessToken, refreshToken);
+  const sessionHash = await hashPassword(refreshToken);
+  const previous = browser?.accounts.find(a=>a.userId===userId)?.sessionHash;
+  await updateUser(userId, { refreshTokenHashes: [...existingSessions.filter(h=>h!==previous).slice(-7), sessionHash] });
+  const binding = await registerBrowserAccount(req,res,userId,sessionHash);
+  setAuthCookies(res, signAccessToken(userId,binding,browserSessionKey(sessionHash)), refreshToken);
 }
 
 async function matchingRefreshSession(user, token) {
@@ -300,20 +307,20 @@ app.delete('/api/admin/comments/:id', requireAuth, requireModerator, async (req,
   } catch (error) { next(error); }
 });
 
-app.post('/api/auth/signup', authLimiter, validate(schemas.signup), async (req, res, next) => {
+app.post('/api/auth/signup', authLimiter, requireAccountCsrf, validate(schemas.signup), async (req, res, next) => {
   try {
     if (await findUserByEmail(req.body.email)) return res.status(409).json({ error: 'An account with that email already exists.' });
     const user = await createUser({ email: req.body.email, displayName: req.body.displayName, password: await hashPassword(req.body.password) });
-    await establishSession(res, user);
+    await establishSession(req, res, user);
     res.status(201).json({ user: accountPayload(user) });
   } catch (error) { next(error); }
 });
 
-app.post('/api/auth/login', authLimiter, validate(schemas.login), async (req, res, next) => {
+app.post('/api/auth/login', authLimiter, requireAccountCsrf, validate(schemas.login), async (req, res, next) => {
   try {
     const user = await findUserByEmail(req.body.email, true);
     if (!user?.password || !(await comparePassword(req.body.password, user.password))) return res.status(401).json({ error: 'Invalid email or password.' });
-    await establishSession(res, user);
+    await establishSession(req, res, user);
     res.json({ user: accountPayload(user) });
   } catch (error) { next(error); }
 });
@@ -336,7 +343,7 @@ app.post('/api/auth/password-reset/confirm', authLimiter, validate(schemas.passw
     const user = await findUserByEmail(req.body.email, true);
     const valid = user?.passwordResetHash && user.passwordResetExpiresAt && new Date(user.passwordResetExpiresAt) > new Date() && await bcrypt.compare(req.body.token, user.passwordResetHash);
     if (!valid) return res.status(400).json({ error: 'Reset token is invalid or expired.' });
-    await updateUser(String(user._id || user.id), { password: await hashPassword(req.body.password), passwordResetHash: '', passwordResetExpiresAt: null });
+    await updateUser(String(user._id || user.id), { password: await hashPassword(req.body.password), passwordResetHash: '', passwordResetExpiresAt: null, refreshTokenHash:'', refreshTokenHashes:[] });
     res.json({ message: 'Password updated.' });
   } catch (error) { next(error); }
 });
@@ -351,7 +358,17 @@ app.post('/api/auth/refresh', async (req, res) => {
     if (!user || !(await matchingRefreshSession(user, token))) throw new Error('Refresh token revoked');
     // Keep the existing trusted-device token during renewal. Rotating it here
     // lets simultaneous requests/tabs revoke each other and causes surprise logouts.
-    setAuthCookies(res, signAccessToken(payload.sub), token);
+    const browserToken=req.cookies?.[BROWSER_COOKIE];
+    let browser=await readBrowser(browserToken);
+    if(browserToken && (!browser || browser.active!==payload.sub))throw new Error('Browser account changed');
+    let binding=browser ? browserKey(browserToken) : '';
+    let sessionHash=browser?.accounts.find(a=>a.userId===payload.sub)?.sessionHash;
+    if(!browser){
+      const hashes=[...(user.refreshTokenHashes || []),...(user.refreshTokenHash ? [user.refreshTokenHash] : [])];
+      for(const hash of hashes)if(await bcrypt.compare(token,hash).catch(()=>false)){sessionHash=hash;break;}
+      binding=await registerBrowserAccount(req,res,payload.sub,sessionHash);
+    }
+    setAuthCookies(res, signAccessToken(payload.sub,binding,browserSessionKey(sessionHash)), token);
     res.json({ user: accountPayload(user) });
   } catch {
     clearAuthCookies(res);
@@ -359,7 +376,57 @@ app.post('/api/auth/refresh', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', async (req, res) => {
+app.get('/api/auth/accounts', async (req,res,next)=>{
+  try {
+    res.set('Cache-Control','private, no-store');
+    const browser=await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+    const accounts=[];
+    for(const grant of browser?.accounts || []) {
+      const user=await findUserById(grant.userId,true);
+      if(user?.refreshTokenHashes?.includes(grant.sessionHash))
+        accounts.push({id:grant.userId,displayName:user.displayName,handle:user.handle,avatarUrl:user.avatarUrl,active:browser.active===grant.userId});
+    }
+    res.json({accounts});
+  }catch(error){next(error);}
+});
+app.post('/api/auth/accounts/switch', authLimiter, requireAccountCsrf, async(req,res,next)=>{
+  try {
+    const browser=await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+    const grant=browser?.accounts.find(a=>a.userId===req.body.userId);
+    if(!grant)return res.status(403).json({error:'Sign in normally to add this account first.'});
+    const user=await findUserById(grant.userId,true);
+    if(!user?.refreshTokenHashes?.includes(grant.sessionHash)){
+      await removeBrowserAccount(req.cookies[BROWSER_COOKIE],grant.userId);
+      return res.status(401).json({error:'This account session expired. Sign in again.'});
+    }
+    await establishSession(req,res,user);
+    res.json({user:accountPayload(user)});
+  }catch(error){next(error);}
+});
+app.post('/api/auth/accounts/remove', authLimiter, requireAccountCsrf, async(req,res,next)=>{
+  try {
+    const browser=await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+    const grant=browser?.accounts.find(a=>a.userId===req.body.userId);
+    if(!grant)return res.status(404).json({error:'Account not found in this browser.'});
+    const user=await findUserById(grant.userId,true);
+    if(user)await updateUser(grant.userId,{refreshTokenHashes:(user.refreshTokenHashes || []).filter(h=>h!==grant.sessionHash)});
+    await removeBrowserAccount(req.cookies[BROWSER_COOKIE],grant.userId);
+    if(browser.active===grant.userId)clearAuthCookies(res);
+    res.status(204).end();
+  }catch(error){next(error);}
+});
+app.post('/api/auth/accounts/logout-all', authLimiter, requireAccountCsrf, async(req,res,next)=>{
+  try {
+    const browser=await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+    for(const grant of browser?.accounts || []){
+      const user=await findUserById(grant.userId,true);
+      if(user)await updateUser(grant.userId,{refreshTokenHashes:(user.refreshTokenHashes || []).filter(h=>h!==grant.sessionHash)});
+    }
+    await deleteBrowser(req.cookies?.[BROWSER_COOKIE]);clearBrowserCookie(res);clearAuthCookies(res);
+    res.status(204).end();
+  }catch(error){next(error);}
+});
+app.post('/api/auth/logout', requireAccountCsrf, async (req, res) => {
   try {
     const accessToken = req.cookies?.[ACCESS_COOKIE];
     const refreshToken = req.cookies?.[REFRESH_COOKIE];
@@ -376,6 +443,8 @@ app.post('/api/auth/logout', async (req, res) => {
         }
       } catch { /* cookie clearing is still sufficient */ }
     }
+    const browser=await readBrowser(req.cookies?.[BROWSER_COOKIE]);
+    if(browser?.active)await removeBrowserAccount(req.cookies[BROWSER_COOKIE],browser.active);
     clearAuthCookies(res);
     res.status(204).end();
   } catch { clearAuthCookies(res); res.status(204).end(); }
@@ -390,7 +459,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 if (googleConfigured) {
   app.get('/api/auth/google', authLimiter, passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
   app.get('/api/auth/google/callback', authLimiter, passport.authenticate('google', { session: false, failureRedirect: '/#auth?error=google' }), async (req, res, next) => {
-    try { await establishSession(res, req.user); res.redirect('/#profile'); } catch (error) { next(error); }
+    try { await establishSession(req, res, req.user); res.redirect('/#profile'); } catch (error) { next(error); }
   });
 } else {
   app.get('/api/auth/google', (_req, res) => res.status(503).send('Google OAuth is not configured. Add credentials to .env.'));
@@ -404,6 +473,12 @@ app.patch('/api/profile', requireAuth, validate(schemas.profile), async (req, re
   try { res.json({ user: accountPayload(await updateUser(req.userId, req.body)) }); } catch (error) { next(error); }
 });
 
+app.get('/api/discover/:mode', optionalAuth, async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await discoverPosts(req.userId, { mode: req.params.mode, cursor: req.query.cursor, limit: req.query.limit }));
+  } catch (error) { next(error); }
+});
 app.get('/api/posts', optionalAuth, async (req, res, next) => {
   try { res.json({ posts: await listPosts(req.userId) }); } catch (error) { next(error); }
 });
