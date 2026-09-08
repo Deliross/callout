@@ -473,17 +473,28 @@ async function openAccountMenu() {
   const dialog=document.createElement('dialog');dialog.id='accountMenu';dialog.className='account-dialog';
   const button=document.querySelector('#profileButton');
   button.setAttribute('aria-expanded','true');
-  dialog.innerHTML='<header><h2>Accounts</h2><button type="button" data-dismiss aria-label="Close accounts">×</button></header><div class="account-list" aria-live="polite">Loading…</div>'+
-    (sessionUser?'<button type="button" data-account-profile>Profile</button><button type="button" data-account-settings>Settings</button>':'')+
-    '<button type="button" data-account-add>'+ (sessionUser?'Add account':'Sign in') +'</button>'+
-    (sessionUser?'<button type="button" data-account-out>Sign out of this account</button>':'')+
-    '<button type="button" data-account-all>Sign out of all accounts on this browser</button>';
-  document.body.append(dialog);dialog.showModal();
+  const profile=sessionUser?state.profile:defaultState.profile;
+  const milestone=heatMilestone(Number(profile.heatScore||0));
+  dialog.innerHTML='<header class="account-popover-identity"><span class="avatar">'+(profile.avatarUrl?'<img src="'+escapeHtml(profile.avatarUrl)+'" alt="" />':escapeHtml((profile.displayName||'C').charAt(0)))+'</span><div><strong>'+escapeHtml(sessionUser?profile.displayName:'Welcome to Callout')+'</strong><small>'+escapeHtml(sessionUser?profile.handle:'Sign in to join the conversation')+'</small></div><button type="button" data-dismiss aria-label="Close account menu">×</button></header>'+
+    (sessionUser?'<section class="account-heat-summary"><span><b>'+Number(profile.heatScore||0).toLocaleString()+'</b> Heat</span><small>'+escapeHtml(milestone.name)+'</small><i><b style="width:'+milestone.progress+'%"></b></i></section><nav class="account-popover-nav"><button type="button" data-account-profile>Profile <span>›</span></button><button type="button" data-account-heat>Your Heat <span>›</span></button><button type="button" data-account-saved>Saved <span>›</span></button><button type="button" data-account-settings>Settings <span>›</span></button></nav>':'')+
+    '<button class="account-panel-toggle" type="button" data-account-panel>Accounts <span>›</span></button><section class="account-switcher-panel" hidden><div class="account-list" aria-live="polite">Loading…</div><button type="button" data-account-add>'+ (sessionUser?'＋ Add account':'Sign in') +'</button></section>'+
+    '<button class="account-theme-toggle" type="button" data-account-theme><span>Dark mode</span><i aria-hidden="true"></i></button>'+
+    (sessionUser?'<button class="account-signout" type="button" data-account-out>Sign out of this account</button>':'')+
+    '<button class="account-signout-all" type="button" data-account-all>Sign out of all accounts</button>';
+  document.body.append(dialog);dialog.show();
   const close=()=>dialog.close();
-  dialog.addEventListener('close',()=>{button.setAttribute('aria-expanded','false');dialog.remove();button.focus();});
+  const closeFromOutside=event=>{if(!dialog.contains(event.target)&&!button.contains(event.target))close();};
+  setTimeout(()=>document.addEventListener('pointerdown',closeFromOutside),0);
+  dialog.addEventListener('close',()=>{document.removeEventListener('pointerdown',closeFromOutside);button.setAttribute('aria-expanded','false');dialog.remove();button.focus();});
+  dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   dialog.querySelector('[data-dismiss]').onclick=close;
   dialog.querySelector('[data-account-profile]')?.addEventListener('click',()=>{close();navigate('profile');});
+  dialog.querySelector('[data-account-heat]')?.addEventListener('click',()=>{close();navigate('heat');});
+  dialog.querySelector('[data-account-saved]')?.addEventListener('click',()=>{close();navigate('saved');});
   dialog.querySelector('[data-account-settings]')?.addEventListener('click',()=>{close();navigate('settings');});
+  dialog.querySelector('[data-account-panel]').onclick=()=>{const panel=dialog.querySelector('.account-switcher-panel');panel.hidden=!panel.hidden;dialog.querySelector('[data-account-panel] span').textContent=panel.hidden?'›':'⌄';};
+  dialog.querySelector('[data-account-theme]').onclick=()=>{state.settings.theme=document.documentElement.dataset.resolvedTheme==='dark'?'light':'dark';persist();applyDisplaySettings();dialog.querySelector('[data-account-theme] span').textContent=state.settings.theme==='dark'?'Light mode':'Dark mode';};
+  dialog.querySelector('[data-account-theme] span').textContent=document.documentElement.dataset.resolvedTheme==='dark'?'Light mode':'Dark mode';
   dialog.querySelector('[data-account-add]').onclick=()=>{
     if(!confirmAccountChange())return;
     close();state.addingAccount=true;navigate('auth');
@@ -626,6 +637,7 @@ function updateHeaderProfile() {
   avatar.innerHTML = profile.avatarUrl
     ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.displayName)}" />`
     : escapeHtml((profile.displayName || 'C').charAt(0).toUpperCase());
+  document.querySelector('#profileButton')?.style.setProperty('--heat-ring', `${heatMilestone(Number(profile.heatScore || 0)).progress}%`);
   updateAccountChrome();
 }
 
@@ -1214,14 +1226,21 @@ function homeExperienceView() {
 }
 
 function trendingView() {
-  const posts = sessionUser ? state.trendingPosts : state.trendingPosts.filter(post => !post.authorAutomated);
-  const interactions = posts.reduce((sum, post) => sum + post.alrightVotes + post.cringeVotes + Number(post.commentCount || 0), 0);
-  const closeCalls = posts.filter(post => { const total = post.alrightVotes + post.cringeVotes; return total && Math.abs((post.alrightVotes / total) - .5) <= .1; }).length;
-  return `<div class="leaderboard-compact-head compact-page-head"><strong>TRENDING</strong><span><i></i> Updated live</span></div>
-    ${adBanner('trending-banner')}
-    <div class="segmented-control"><button class="active" type="button">Takes</button><button type="button">Topics</button><button type="button">Guilds</button></div>
-    <section class="trend-stats"><div><span>LIVE SIGNAL</span><strong>${posts.length}</strong><small>Active debates</small></div><div><span>MOMENTUM</span><strong>${interactions}</strong><small>Total interactions</small></div><div><span>CLOSE CALLS</span><strong>${closeCalls}</strong><small>Near 50/50</small></div></section>
-    ${posts.length ? feedMarkup(posts) : emptyState('↗', 'Nothing is trending yet', 'The first real post will appear here. Ranking is based on views and interactions.')}`;
+  const all = sessionUser ? state.trendingPosts : state.trendingPosts.filter(post => !post.authorAutomated);
+  const period = state.trendingWindow || 'all';
+  const age = { today: 86400000, week: 604800000, month: 2592000000, all: Infinity }[period];
+  const posts = all.filter(post => Date.now() - new Date(post.createdAt).getTime() <= age);
+  const featured = posts[0];
+  const featureTotal = Number(featured?.alrightVotes || 0) + Number(featured?.cringeVotes || 0);
+  const featureBased = featureTotal ? Math.round(Number(featured.alrightVotes || 0) / featureTotal * 100) : 50;
+  const featureMedia = featured?.media?.[0];
+  return `<section class="trending-page">
+    <header class="trending-title"><div><span class="section-kicker">WHAT CALLOUT IS ARGUING ABOUT</span><h1>TRENDING</h1><p>Live Takes gaining attention across the community.</p></div><span class="trending-live"><i></i> Updated live</span></header>
+    <nav class="trending-periods" aria-label="Trending time range">${[['today','Today'],['week','This Week'],['month','This Month'],['all','All Time']].map(([value,label])=>`<button type="button" data-trending-window="${value}" class="${period===value?'active':''}">${label}</button>`).join('')}</nav>
+    ${featured ? `<article class="trending-feature" data-post-id="${featured.id}">${featureMedia ? `<button class="trending-feature-media" type="button" data-open-take="${featured.id}">${featureMedia.type==='video'?`<video src="${escapeHtml(featureMedia.url)}" muted playsinline preload="metadata"></video>`:`<img src="${escapeHtml(featureMedia.url)}" alt="${escapeHtml(featureMedia.alt||'')}" />`}</button>`:''}<div class="trending-feature-copy"><span class="section-kicker">THE BIG DEBATE</span><small>${escapeHtml(featured.category||'Callout')} · ${timeLabel(featured.createdAt)}</small><button type="button" data-open-take="${featured.id}"><strong>${formatPostContent(featured.text)}</strong></button>${featured.resultsUnlocked?`<div class="trending-feature-result" style="--based:${featureBased}%"><span>BASED <b>${featureBased}%</b></span><i><b></b></i><span><b>${100-featureBased}%</b> HOT TAKE</span></div>`:'<p class="trending-feature-locked">Vote to reveal the community result.</p>'}<footer><span>${Number(featured.commentCount||0).toLocaleString()} Takes</span><span>${featured.resultsUnlocked?featureTotal.toLocaleString()+' votes':'Results hidden'}</span><button type="button" data-open-take="${featured.id}">Open Take →</button></footer></div></article>` : ''}
+    <header class="trending-list-head"><div><span class="section-kicker">RANKED BY REAL ACTIVITY</span><h2>TOP TAKES</h2></div><span>${posts.length} active</span></header>
+    ${posts.length ? `<section class="trending-ranked-feed">${posts.map((post,index)=>`<div class="trending-ranked-item"><b class="trending-rank">${String(index+1).padStart(2,'0')}</b>${postTemplate(post)}</div>`).join('')}</section>` : emptyState('↗','Nothing is trending in this time range','Try a wider time range. No activity has been invented to fill this page.')}
+  </section>`;
 }
 
 function guildCard(guild) {
@@ -1378,11 +1397,12 @@ function guildDetailView() {
   const id = decodeURIComponent(location.hash.split('/')[1] || '');
   const guild = state.activeGuild?.id === id ? state.activeGuild : null;
   if (!guild) return `${pageHeader('GUILD', 'Loading guild…', 'Opening the public guild profile.')}`;
-  const tab = location.hash.split('/')[2] || (guild.joined ? 'feed' : 'public');
-  const tabs = `<nav class="guild-tabs"><button data-guild-tab="public" class="${tab === 'public' ? 'active' : ''}">Public profile</button><button data-guild-tab="feed" class="${tab === 'feed' ? 'active' : ''}">Member feed</button><button data-guild-tab="pinboard" class="${tab === 'pinboard' ? 'active' : ''}">Pinboard</button><button data-guild-tab="chat" class="${tab === 'chat' ? 'active' : ''}">Group chat</button>${guild.joined ? `<button data-guild-tab="members" class="${tab === 'members' ? 'active' : ''}">Members</button><button data-guild-tab="identity" class="${tab === 'identity' ? 'active' : ''}">My identity</button>` : ''}${guild.permissions?.manageRoles ? `<button data-guild-tab="roles" class="${tab === 'roles' ? 'active' : ''}">Roles</button>` : ''}${guild.permissions?.viewAudit ? `<button data-guild-tab="audit" class="${tab === 'audit' ? 'active' : ''}">Audit</button>` : ''}${guild.permissions?.manageGuild ? `<button data-guild-tab="settings" class="${tab === 'settings' ? 'active' : ''}">Style studio</button>` : ''}</nav>`;
-  const hero = `<section class="guild-hero guild-bg-${escapeHtml(guild.backgroundPattern || 'clean')} guild-cards-${escapeHtml(guild.cardStyle || 'solid')} guild-effect-${escapeHtml(guild.seasonalEffect || 'none')}" style="--guild-theme:${escapeHtml(guild.themeColor || '#7444e8')};--guild-accent:${escapeHtml(guild.accentColor || '#ff4713')}"><div class="guild-cover">${guild.bannerUrl ? `<img src="${escapeHtml(guild.bannerUrl)}" alt="" />` : ''}</div><div class="guild-hero-body"><span class="guild-profile-icon guild-icon-${escapeHtml(guild.iconShape || 'rounded')}">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div><span class="section-kicker">LEVEL ${Number(guild.level || 1)} · ${guild.memberCount} MEMBERS</span><h1>${escapeHtml(guild.name)}</h1><p>${escapeHtml(guild.tagline || guild.description)}</p><div class="guild-xp-track"><i style="width:${Math.min(100, Number(guild.guildXp || 0) % 100)}%"></i></div></div><button class="${guild.joined ? 'quiet-action' : 'primary-action'}" type="button" data-toggle-guild="${guild.id}" ${guild.owner ? 'disabled' : ''}>${guild.owner ? 'Owner' : guild.joined ? 'Leave guild' : 'Join guild'}</button></div></section>`;
+  const tab = location.hash.split('/')[2] || 'feed';
+  const tabs = `<nav class="guild-tabs guild-profile-tabs"><button data-guild-tab="feed" class="${tab === 'feed' ? 'active' : ''}">Posts</button><button data-guild-tab="public" class="${tab === 'public' ? 'active' : ''}">About</button><button data-guild-tab="members" class="${tab === 'members' ? 'active' : ''}">Members</button><button data-guild-tab="rules" class="${tab === 'rules' ? 'active' : ''}">Rules</button><span></span><button data-guild-tab="pinboard" class="${tab === 'pinboard' ? 'active' : ''}">Pinboard</button><button data-guild-tab="chat" class="${tab === 'chat' ? 'active' : ''}">Chat</button>${guild.joined ? `<button data-guild-tab="identity" class="${tab === 'identity' ? 'active' : ''}">My identity</button>` : ''}${guild.permissions?.manageRoles ? `<button data-guild-tab="roles" class="${tab === 'roles' ? 'active' : ''}">Roles</button>` : ''}${guild.permissions?.viewAudit ? `<button data-guild-tab="audit" class="${tab === 'audit' ? 'active' : ''}">Audit</button>` : ''}${guild.permissions?.manageGuild ? `<button data-guild-tab="settings" class="${tab === 'settings' ? 'active' : ''}">Manage</button>` : ''}</nav>`;
+  const hero = `<section class="guild-hero guild-profile-hero guild-bg-${escapeHtml(guild.backgroundPattern || 'clean')}" style="--guild-theme:${escapeHtml(guild.themeColor || '#7444e8')};--guild-accent:${escapeHtml(guild.accentColor || '#ff4713')}"><div class="guild-cover">${guild.bannerUrl ? `<img src="${escapeHtml(guild.bannerUrl)}" alt="" />` : '<span>'+escapeHtml(guild.name)+'</span>'}</div><div class="guild-hero-body"><span class="guild-profile-icon guild-icon-${escapeHtml(guild.iconShape || 'circle')}">${guild.iconUrl ? `<img src="${escapeHtml(guild.iconUrl)}" alt="" />` : escapeHtml(guild.name.charAt(0))}</span><div class="guild-profile-copy"><h1>${escapeHtml(guild.name)}</h1><p class="guild-handle">@${escapeHtml((guild.name||'guild').toLowerCase().replace(/[^a-z0-9]+/g,''))} · ${Number(guild.memberCount||0).toLocaleString()} members</p><p>${escapeHtml(guild.description || guild.tagline || 'A Callout community.')}</p><div class="guild-profile-tags"><span>${guild.privacy==='private'?'Private':'Public'}</span><span>Level ${Number(guild.level||1)}</span>${guild.joined?'<span>Member</span>':''}</div></div><div class="guild-profile-actions"><button class="${guild.joined ? 'quiet-action' : 'primary-action'}" type="button" data-toggle-guild="${guild.id}" ${guild.owner ? 'disabled' : ''}>${guild.owner ? 'Owner' : guild.joined ? 'Joined' : 'Join'}</button><button class="quiet-action guild-more" type="button" aria-label="More guild options">•••</button></div></div></section>`;
   let body = '';
   if (tab === 'public') body = `${guild.pinnedAnnouncement ? `<aside class="guild-announcement"><strong>Pinned announcement</strong><p>${escapeHtml(guild.pinnedAnnouncement)}</p></aside>` : ''}<section class="guild-public-grid"><article><span class="section-kicker">ABOUT</span><h2>${escapeHtml(guild.description || 'No description yet.')}</h2></article><article><span class="section-kicker">RULES</span><div class="formatted-copy">${escapeHtml(guild.rules || 'Guild rules have not been added yet.').replace(/\n/g, '<br>')}</div></article></section>`;
+  else if (tab === 'rules') body = `<section class="guild-rules-page"><span class="section-kicker">GUILD RULES</span><h2>Keep the conversation worth joining.</h2>${(guild.rules||'Guild rules have not been added yet.').split('\n').filter(Boolean).map((rule,index)=>`<article><b>${index+1}</b><p>${escapeHtml(rule)}</p></article>`).join('')}</section>`;
   else if (!guild.canViewContent) body = emptyState('🔒', 'Members-only area', 'This guild is public from the outside, but its feed and group chat are visible only to members.', `<button class="primary-action" type="button" data-toggle-guild="${guild.id}">Join guild</button>`);
   else if (tab === 'feed') body = `${guild.permissions?.createPosts ? `<form class="guild-post-composer" id="guildPostForm"><input name="title" maxlength="160" required placeholder="State your Take…" /><textarea name="description" maxlength="600" placeholder="Add optional context for ${escapeHtml(guild.name)}…"></textarea><select name="category"><option>Life</option><option>Entertainment</option><option>Movies</option><option>Music</option><option>Games</option></select><button class="primary-action" type="submit">Post to guild</button></form>` : '<aside class="info-callout"><strong>Read-only role</strong><p>The owner must grant Contributor posting permission before you can publish here.</p></aside>'}${state.guildPosts.length ? feedMarkup(state.guildPosts) : emptyState('✦', 'No guild posts yet', 'Permitted contributors can start the first conversation here.')}`;
   else if (tab === 'chat') body = guild.permissions?.chat ? `<section class="guild-chat"><div class="chat-stream">${state.guildMessages.length ? state.guildMessages.map(message => `<article><span class="avatar">${message.sender?.avatarUrl ? `<img src="${escapeHtml(message.sender.avatarUrl)}" alt="" />` : escapeHtml((message.sender?.displayName || 'C').charAt(0))}</span><div><strong>${escapeHtml(message.sender?.displayName || 'Member')}</strong><small>${timeLabel(new Date(message.createdAt).getTime())}</small><p>${escapeHtml(message.text)}</p></div></article>`).join('') : '<div class="stage-empty"><h2>No messages yet</h2><p>Start the guild group chat.</p></div>'}</div><form id="guildChatForm"><textarea name="text" maxlength="2000" required placeholder="Message the guild…"></textarea><button class="primary-action" type="submit">Send</button></form></section>` : emptyState('🔒', 'Chat permission required', 'Ask a guild moderator to grant a role with chat access.');
@@ -1559,12 +1579,14 @@ function savedView() {
   let saved = activeBoard ? (activeBoard.postIds || []).map(id => byId.get(id)).filter(Boolean) : state.activeSavedBoard === 'unsorted' ? [...state.savedPosts].reverse().filter(post => !boardIds.has(post.id)) : [...state.savedPosts].reverse();
   const search = state.savedSearch.trim().toLowerCase();
   if (search) saved = saved.filter(post => `${post.text} ${post.authorName} ${post.authorHandle} ${post.category}`.toLowerCase().includes(search));
-  const tabs = [`<button class="saved-folder-tab system ${state.activeSavedBoard === 'all' ? 'active' : ''}" type="button" data-saved-board="all" data-board-drop="all"><span>ALL</span><b>${state.savedPosts.length}</b></button>`, ...state.savedBoards.map(board => `<button class="saved-folder-tab tone-${escapeHtml(board.color)} ${state.activeSavedBoard === board.id ? 'active' : ''}" type="button" data-saved-board="${board.id}" data-board-drop="${board.id}"><span>${savedBoardIcon(board.icon)} ${escapeHtml(board.title)}</span><b>${Number(board.totalPostCount ?? board.postCount ?? 0)}</b></button>`), `<button class="saved-folder-tab unsorted ${state.activeSavedBoard === 'unsorted' ? 'active' : ''}" type="button" data-saved-board="unsorted" data-board-drop="unsorted"><span>UNSORTED</span><b>${state.savedPosts.filter(post => !boardIds.has(post.id)).length}</b></button>`].join('');
+  const unsortedPosts = state.savedPosts.filter(post => !boardIds.has(post.id));
+  const collage = posts => `<span class="saved-board-collage">${posts.slice(0,4).map(post=>{const media=post.media?.find(item=>item.type!=='video');return media?`<img src="${escapeHtml(media.url)}" alt="" loading="lazy" />`:`<i>${escapeHtml((post.category||'C').charAt(0))}</i>`;}).join('')}${posts.length? '':'<i>◇</i><i>◇</i><i>◇</i><i>◇</i>'}</span>`;
+  const boardTiles = [`<button class="saved-board-tile tone-yellow ${state.activeSavedBoard==='all'?'active':''}" type="button" data-saved-board="all" data-board-drop="all">${collage(state.savedPosts)}<span><strong>All Saved</strong><small>Private · ${state.savedPosts.length} items</small></span></button>`, ...state.savedBoards.map(board=>{const items=(board.postIds||[]).map(id=>byId.get(id)).filter(Boolean);return `<button class="saved-board-tile tone-${escapeHtml(board.color)} ${state.activeSavedBoard===board.id?'active':''}" type="button" data-saved-board="${board.id}" data-board-drop="${board.id}">${collage(items)}<span><strong>${savedBoardIcon(board.icon)} ${escapeHtml(board.title)}</strong><small>${escapeHtml(board.visibility)} · ${Number(board.totalPostCount??board.postCount??0)} items</small></span></button>`;}), `<button class="saved-board-tile tone-graphite ${state.activeSavedBoard==='unsorted'?'active':''}" type="button" data-saved-board="unsorted" data-board-drop="unsorted">${collage(unsortedPosts)}<span><strong>Unsorted</strong><small>Private · ${unsortedPosts.length} items</small></span></button>`].join('');
   return `<section class="saved-pinboard-page">
-    <header class="saved-pinboard-heading"><div><span class="section-kicker">YOUR LIBRARY</span><h1>SAVED PINBOARD</h1><p>Build collections from the Takes you cannot forget.</p></div><div><button class="quiet-action saved-mobile-boards" type="button" data-toggle-saved-mobile-rail>Boards</button><button class="primary-action" type="button" data-new-saved-board>＋ New Board</button></div></header>
+    <header class="saved-pinboard-heading"><div><span class="section-kicker">YOUR PRIVATE LIBRARY</span><h1>SAVED</h1><p>Everything you kept, organized your way.</p></div><div><button class="quiet-action saved-mobile-boards" type="button" data-toggle-saved-mobile-rail>Organize</button><button class="primary-action" type="button" data-new-saved-board>＋ New Board</button></div></header>
     <label class="saved-search"><svg><use href="#i-search"></use></svg><input type="search" value="${escapeHtml(state.savedSearch)}" placeholder="Search saved Takes" aria-label="Search saved Takes" /></label>
-    <nav class="saved-folder-tabs" aria-label="Saved Boards">${tabs}</nav>
-    <div class="saved-active-summary"><div><span class="saved-folder-mark tone-${escapeHtml(activeBoard?.color || (state.activeSavedBoard === 'unsorted' ? 'graphite' : 'yellow'))}">${savedBoardIcon(activeBoard?.icon || 'folder')}</span><div><strong>${escapeHtml(activeBoard?.title || (state.activeSavedBoard === 'unsorted' ? 'Unsorted' : 'All Saved'))}</strong><small>${activeBoard?.description ? escapeHtml(activeBoard.description) : state.activeSavedBoard === 'unsorted' ? 'Saved Takes waiting for a Board.' : 'Every post you have bookmarked.'}</small></div></div>${activeBoard ? `<button class="quiet-action" type="button" data-edit-saved-board="${activeBoard.id}">Edit Board</button>` : ''}</div>
+    <div class="saved-board-shelf" aria-label="Saved Boards">${boardTiles}</div>
+    <div class="saved-active-summary"><div><div><span class="section-kicker">CURRENT VIEW</span><strong>${escapeHtml(activeBoard?.title || (state.activeSavedBoard === 'unsorted' ? 'Unsorted' : 'All Saved'))}</strong><small>${activeBoard?.description ? escapeHtml(activeBoard.description) : state.activeSavedBoard === 'unsorted' ? 'Saved Takes waiting for a Board.' : 'Every post you have bookmarked.'}</small></div></div>${activeBoard ? `<button class="quiet-action" type="button" data-edit-saved-board="${activeBoard.id}">Edit</button>` : ''}</div>
     ${saved.length ? `<section class="saved-pin-grid" aria-live="polite">${saved.map(post => savedPinCard(post, activeBoard)).join('')}</section>` : emptyState('◇', search ? 'No matching Takes' : state.activeSavedBoard === 'unsorted' ? 'Everything is organized' : 'This Board is empty', search ? 'Try a different search.' : state.activeSavedBoard === 'unsorted' ? 'New bookmarks will wait here until you move them.' : 'Drag a saved Take onto this Board, or use Move to Board on mobile.')}
   </section>`;
 }
@@ -1579,7 +1601,6 @@ function savedPinCard(post, board) {
   const media = (post.media || [])[0];
   const mediaMarkup = media ? `<div class="saved-pin-media">${media.type === 'video' ? `<video src="${escapeHtml(media.url)}" muted playsinline preload="metadata"></video><span>VIDEO</span>` : `<img src="${escapeHtml(media.url)}" alt="${escapeHtml(media.alt || 'Saved post media')}" loading="lazy" />`}</div>` : '';
   return `<article class="saved-pin-card tone-${escapeHtml(board?.color || savedPostBoard(post.id)?.color || 'graphite')}" draggable="true" data-saved-pin="${post.id}" data-post-id="${post.id}">
-    <span class="saved-pin-tab">${savedBoardIcon(board?.icon || savedPostBoard(post.id)?.icon || 'folder')}</span>
     <header>${postAvatarMarkup(post)}<div><strong>${escapeHtml(post.anonymous && !post.anonymousRevealedAt ? 'Anonymous' : post.authorHandle || '@member')}</strong><small>${timeLabel(post.createdAt)} · ${escapeHtml(post.category || 'Callout')}</small></div><button class="icon-button save-button saved" type="button" data-save-post="${post.id}" aria-label="Remove from saved"><svg><use href="#i-bookmark"></use></svg></button></header>
     <button class="saved-pin-open" type="button" data-open-take="${post.id}"><strong>${formatPostContent(post.text)}</strong>${mediaMarkup}</button>
     ${unlocked ? `<div class="saved-pin-vote" style="--based:${based}%"><span>BASED ${based}%</span><span>HOT TAKE ${hot}%</span></div>` : '<p class="saved-locked-result">Vote on this Take to reveal the result.</p>'}
@@ -1602,6 +1623,26 @@ function renderSavedBoardsRail(route = currentRoute()) {
     ${state.savedBoards.map((board, index) => `<div class="saved-rail-row-wrap" data-board-drop="${board.id}"><button class="saved-rail-row ${state.activeSavedBoard === board.id ? 'active' : ''}" type="button" data-saved-board="${board.id}"><span class="saved-folder-mark tone-${escapeHtml(board.color)}">${savedBoardIcon(board.icon)}</span><span><strong>${escapeHtml(board.title)}</strong><small>${escapeHtml(board.visibility)}${board.hiddenPostCount ? ` · ${board.hiddenPostCount} hidden publicly` : ''}</small></span><b>${Number(board.totalPostCount ?? board.postCount ?? 0)}</b></button><div class="saved-board-row-actions"><button type="button" data-shift-saved-board="${board.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''} aria-label="Move ${escapeHtml(board.title)} up">↑</button><button type="button" data-shift-saved-board="${board.id}" data-direction="1" ${index === state.savedBoards.length - 1 ? 'disabled' : ''} aria-label="Move ${escapeHtml(board.title)} down">↓</button><button type="button" data-edit-saved-board="${board.id}" aria-label="Edit ${escapeHtml(board.title)}">•••</button></div></div>`).join('')}
     <button class="saved-rail-row ${state.activeSavedBoard === 'unsorted' ? 'active' : ''}" type="button" data-saved-board="unsorted" data-board-drop="unsorted"><span class="saved-folder-mark tone-graphite">▱</span><strong>Unsorted</strong><b>${unsorted}</b></button>
     <button class="saved-rail-new" type="button" data-new-saved-board>＋ New Board</button></div><footer><button type="button" data-toggle-saved-rail>‹ <span>Collapse</span></button></footer></section>`);
+}
+
+function renderContextualRail(route = currentRoute()) {
+  const rail=document.querySelector('#rightRail'); if(!rail)return;
+  rail.querySelectorAll('.guild-detail-rail,.trending-detail-rail').forEach(node=>node.remove());
+  rail.classList.toggle('guild-mode',route==='guild');
+  rail.classList.toggle('trending-mode',route==='trending');
+  if(route==='guild'&&state.activeGuild){
+    const guild=state.activeGuild;
+    const members=[...(state.guildMembers||[])];
+    const visibleMembers=guild.settings?.showMemberList===false?[]:members;
+    const featured=[...visibleMembers].sort((a,b)=>Number(b.contributionScore||0)-Number(a.contributionScore||0)).slice(0,4);
+    const rules=(guild.rules||'').split('\n').map(item=>item.trim()).filter(Boolean);
+    rail.insertAdjacentHTML('afterbegin',`<section class="guild-detail-rail"><article class="guild-rail-members"><header><strong>Members · ${Number(guild.memberCount||0).toLocaleString()}</strong>${visibleMembers.length?'<button type="button" data-guild-tab="members">See all →</button>':''}</header><div>${visibleMembers.slice(0,6).map(member=>`<button type="button" data-open-user="${member.user?.id||''}"><span class="avatar">${member.user?.avatarUrl?`<img src="${escapeHtml(member.user.avatarUrl)}" alt="" />`:escapeHtml((member.guildProfile?.nickname||member.user?.displayName||'C').charAt(0))}</span><small>${escapeHtml(member.guildProfile?.nickname||member.user?.displayName||'Member')}</small><i class="status-dot ${escapeHtml(member.user?.status||'invisible')}"></i></button>`).join('')||'<p>Member profiles are private.</p>'}</div></article><article><header><strong>Featured Members</strong></header>${featured.length?`<div class="guild-featured-members">${featured.map(member=>`<button type="button" data-open-user="${member.user?.id||''}"><span class="avatar">${member.user?.avatarUrl?`<img src="${escapeHtml(member.user.avatarUrl)}" alt="" />`:escapeHtml((member.user?.displayName||'C').charAt(0))}</span><span><strong>${escapeHtml(member.guildProfile?.nickname||member.user?.displayName||'Member')}</strong><small>${escapeHtml(member.user?.handle||member.roleKey||'member')}</small></span><em>${Number(member.contributionScore||0)} contribution</em></button>`).join('')}</div>`:'<p class="guild-rail-empty">Featured contributors will appear after members participate.</p>'}</article><article class="guild-rail-rules"><header><strong>Guild rules</strong><button type="button" data-guild-tab="rules">See all →</button></header>${rules.length?rules.slice(0,4).map((rule,index)=>`<div><b>${index+1}</b><p>${escapeHtml(rule)}</p></div>`).join(''):'<p class="guild-rail-empty">No rules have been published yet.</p>'}</article><article class="guild-upcoming"><header><strong>Upcoming discussion</strong></header><div><span>◷</span><p><strong>Nothing scheduled yet</strong><small>Guild organizers can announce the next discussion here in a future update.</small></p></div></article></section>`);
+  }
+  if(route==='trending'){
+    const counts=new Map();(state.trendingPosts||[]).forEach(post=>{const key=post.category||'Callout';counts.set(key,(counts.get(key)||0)+Number(post.alrightVotes||0)+Number(post.cringeVotes||0)+Number(post.commentCount||0));});
+    const rising=[...counts].filter(([,value])=>value>0).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    rail.insertAdjacentHTML('afterbegin',`<section class="trending-detail-rail"><header><span class="section-kicker">LIVE MOMENTUM</span><h2>FASTEST RISING</h2><p>Topics gaining real interactions now.</p></header>${rising.length?rising.map(([name,value],index)=>`<button type="button" data-trending-category="${escapeHtml(name)}"><b>${index+1}</b><span><strong>${escapeHtml(name)}</strong><small>${Number(value).toLocaleString()} interactions</small></span><i>↗</i></button>`).join(''):'<p class="guild-rail-empty">There is not enough activity to rank topics yet.</p>'}<footer>Ranked from current public activity.</footer></section>`);
+  }
 }
 
 function savedBoardForm(board = {}) {
@@ -1934,6 +1975,7 @@ function renderRoute() {
   mainContent.dataset.route = route;
   document.body.dataset.route = route;
   renderSavedBoardsRail(route);
+  renderContextualRail(route);
   updateAdVisibility();
   document.title = `${route === 'home' ? 'Callout' : `${route.charAt(0).toUpperCase()}${route.slice(1)} · Callout`}`;
   bindViewInteractions(route);
@@ -2026,6 +2068,8 @@ function prepareBattleHostForm() {
 }
 
 function bindViewInteractions(route) {
+  document.querySelectorAll('[data-trending-window]').forEach(button=>button.addEventListener('click',()=>{state.trendingWindow=button.dataset.trendingWindow;renderRoute();}));
+  document.querySelectorAll('[data-trending-category]').forEach(button=>button.addEventListener('click',()=>{navigate('home');setTimeout(()=>renderFilteredPosts(button.dataset.trendingCategory),0);}));
   document.querySelector('[data-messages-back]')?.addEventListener('click',()=>navigate('messages'));
   document.querySelector('.conversation-list input[type="search"]')?.addEventListener('input',event=>{
     const search=event.target.value.trim().toLowerCase();
@@ -2277,7 +2321,7 @@ function bindViewInteractions(route) {
   document.querySelectorAll('[data-upvote-comment]').forEach(button => button.addEventListener('click', () => toggleCommentVote(button.dataset.upvoteComment)));
   document.querySelectorAll('[data-comment-menu]').forEach(button => button.addEventListener('click', () => openCommentMenu(button.dataset.commentMenu)));
   document.querySelectorAll('[data-unblock]').forEach(button => button.addEventListener('click', () => unblockUser(button.dataset.unblock)));
-  document.querySelectorAll('[data-open-guild]').forEach(button => button.addEventListener('click', () => navigate(`guild/${button.dataset.openGuild}/public`)));
+  document.querySelectorAll('[data-open-guild]').forEach(button => button.addEventListener('click', () => navigate(`guild/${button.dataset.openGuild}/feed`)));
   document.querySelectorAll('[data-toggle-guild]').forEach(button => button.addEventListener('click', async () => {
     if (!sessionUser) { navigate('auth'); return showToast('Sign in to join a guild.'); }
     try { await apiFetch(`/api/guilds/${button.dataset.toggleGuild}/membership`, { method: 'POST' }); await Promise.all([hydrateGuilds(), hydrateGuildDetail()]); renderRoute(); showToast('Guild membership updated.'); } catch (error) { showToast(error.message); }

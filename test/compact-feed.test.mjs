@@ -32,7 +32,8 @@ test('sidebar navigation is grouped into the approved sections', () => {
   assert.match(html, /data-route="swipe"/);
   assert.match(html, /data-route="loops"/);
   assert.match(html, /styles\.css\?v=20260906-timeline/);
-  assert.match(html, /app\.js\?v=20260908-waiting/);
+  assert.match(html, /app\.js\?v=20260908-selected-pages/);
+  assert.match(html, /selected-pages\.css\?v=20260908-3/);
   assert.match(html, /data-route="swipe" data-feature-nav="swipe" hidden/);
   assert.match(html, /data-route="loops" data-feature-nav="loops" hidden/);
 });

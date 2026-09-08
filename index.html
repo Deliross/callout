@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="assets/timeline.css?v=20260906-edge" />
     <link rel="stylesheet" href="assets/discovery.css?v=20260908" />
     <link rel="stylesheet" href="assets/social-refresh.css?v=20260908" />
+    <link rel="stylesheet" href="assets/selected-pages.css?v=20260908-3" />
   </head>
   <body>
     <svg class="svg-sprite" aria-hidden="true">
@@ -60,7 +61,7 @@
         <div class="top-account">
           <button class="notification-bell" id="notificationBell" type="button" aria-label="Open notifications"><svg><use href="#i-bell"></use></svg><b class="badge" id="notificationBadge" hidden>0</b></button>
           <button class="profile-button" id="profileButton" type="button" aria-label="Open profile">
-            <span class="avatar avatar-bruce" id="headerAvatar">C</span>
+            <span class="header-avatar-ring"><span class="avatar avatar-bruce" id="headerAvatar">C</span></span>
             <span class="profile-copy"><strong id="headerName">Guest</strong><small><span id="headerHandle">@guest</span><b id="headerHeat">0 HEAT</b></small></span>
             <span class="chevron">›</span>
           </button>
@@ -215,6 +216,6 @@
     <script src="/vendor/dompurify.min.js"></script>
     <script src="assets/originals.js?v=20260906"></script>
     <script src="assets/discovery.js?v=20260908"></script>
-    <script src="app.js?v=20260908-waiting"></script>
+    <script src="app.js?v=20260908-selected-pages"></script>
   </body>
 </html>
