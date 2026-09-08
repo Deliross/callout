@@ -476,6 +476,9 @@ app.patch('/api/profile', requireAuth, validate(schemas.profile), async (req, re
 app.get('/api/discover/:mode', optionalAuth, async (req, res, next) => {
   try {
     res.set('Cache-Control', 'private, no-store');
+    if (['swipe','loops'].includes(req.params.mode) && !await featureEnabled(req.params.mode) &&
+        !(req.userId && isAdminAccount(await findUserById(req.userId))))
+      return res.status(404).json({error:'This feature is not available right now.'});
     res.json(await discoverPosts(req.userId, { mode: req.params.mode, cursor: req.query.cursor, limit: req.query.limit }));
   } catch (error) { next(error); }
 });
@@ -526,6 +529,12 @@ app.post('/api/admin/tts-settings', requireAuth, requireAdmin, validate(schemas.
   try { res.json({ setup: await saveTtsSettings(req.body, req.userId) }); } catch (error) { next(error); }
 });
 app.post('/api/posts', requireAuth, validate(schemas.post), async (req, res, next) => {
+  if (req.body.format === 'loop') {
+    try {
+      if (!await featureEnabled('loops') && !isAdminAccount(await findUserById(req.userId)))
+        return res.status(404).json({error:'Loops is not available right now. You can publish a normal Take instead.'});
+    } catch(error) { return next(error); }
+  }
   try {
     if (req.body.anonymous && !(await featureEnabled('anonymous'))) return res.status(404).json({ error: 'Anonymous posting is not enabled.' });
     if (req.body.topic && !(await topicAllowsWrites(req.body.topic))) return res.status(423).json({ error: 'This Topic is not accepting new posts.' });
