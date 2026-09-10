@@ -127,7 +127,7 @@ if (storedState?.settings?.appearanceVersion !== 2) {
   state.settings.theme = 'light';
 }
 
-const routes = new Set(['home', 'trending', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'heat', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'admin', 'about', 'take', 'auth']);
+const routes = new Set(['home', 'trending', 'live', 'topics', 'battles', 'guilds', 'guild', 'ideas', 'leaderboards', 'heat', 'notifications', 'messages', 'saved', 'profile', 'user', 'settings', 'customize', 'accessibility', 'analytics', 'admin', 'about', 'take', 'auth']);
 const postReactions = [
   { key: 'spark', face: '✦', label: 'Sparked' },
   { key: 'purple_smile', face: '☻', label: 'Purple smile' },
@@ -711,6 +711,12 @@ function renderSidebarWidgets() {
 function renderLiveMoments() {
   const container = document.querySelector('#liveMomentRows');
   if (!container) return;
+  const roomMoments = window.CalloutLive?.momentCards?.() || '';
+  if (roomMoments) {
+    container.innerHTML = roomMoments;
+    container.querySelectorAll('[data-live-moment-open]').forEach(button => button.addEventListener('click', () => navigate('live/movies-2010s')));
+    return;
+  }
   const live = state.topics.filter(topic => topic.state === 'live').slice(0, 3);
   container.innerHTML = live.length ? live.map(topic => {
     const remaining = Math.max(0, new Date(topic.endsAt).getTime() - Date.now());
@@ -1627,9 +1633,10 @@ function renderSavedBoardsRail(route = currentRoute()) {
 
 function renderContextualRail(route = currentRoute()) {
   const rail=document.querySelector('#rightRail'); if(!rail)return;
-  rail.querySelectorAll('.guild-detail-rail,.trending-detail-rail').forEach(node=>node.remove());
+  rail.querySelectorAll('.guild-detail-rail,.trending-detail-rail,.co-live-rail,.co-live-discovery-rail').forEach(node=>node.remove());
   rail.classList.toggle('guild-mode',route==='guild');
   rail.classList.toggle('trending-mode',route==='trending');
+  rail.classList.toggle('live-mode',route==='live');
   if(route==='guild'&&state.activeGuild){
     const guild=state.activeGuild;
     const members=[...(state.guildMembers||[])];
@@ -1643,6 +1650,7 @@ function renderContextualRail(route = currentRoute()) {
     const rising=[...counts].filter(([,value])=>value>0).sort((a,b)=>b[1]-a[1]).slice(0,5);
     rail.insertAdjacentHTML('afterbegin',`<section class="trending-detail-rail"><header><span class="section-kicker">LIVE MOMENTUM</span><h2>FASTEST RISING</h2><p>Topics gaining real interactions now.</p></header>${rising.length?rising.map(([name,value],index)=>`<button type="button" data-trending-category="${escapeHtml(name)}"><b>${index+1}</b><span><strong>${escapeHtml(name)}</strong><small>${Number(value).toLocaleString()} interactions</small></span><i>↗</i></button>`).join(''):'<p class="guild-rail-empty">There is not enough activity to rank topics yet.</p>'}<footer>Ranked from current public activity.</footer></section>`);
   }
+  if(route==='live') rail.insertAdjacentHTML('afterbegin',CalloutLive.rail());
 }
 
 function savedBoardForm(board = {}) {
@@ -1950,14 +1958,35 @@ function authView() {
     <details class="reset-panel"><summary>Forgot your password?</summary><form id="resetRequestForm"><label>Email<input type="email" name="email" required /></label><button class="quiet-action" type="submit">Request reset</button></form><form id="resetConfirmForm" hidden><label>Email<input type="email" name="email" required /></label><label>Reset token<input name="token" required /></label><label>New password<input type="password" name="password" minlength="8" required /></label><button class="primary-action" type="submit">Update password</button></form></details>`;
 }
 
-const viewRenderers = { home: homeExperienceView, trending: trendingView, topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, heat: heatLevelView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
+const viewRenderers = { home: homeExperienceView, trending: trendingView, live: () => CalloutLive.view(), topics: topicsView, battles: battlesView, guilds: guildsView, guild: guildDetailView, ideas: ideasView, leaderboards: rankingsExperienceView, heat: heatLevelView, notifications: notificationsView, messages: messagesView, saved: savedView, profile: profileView, user: publicUserView, settings: settingsView, customize: settingsView, accessibility: settingsView, analytics: analyticsView, admin: adminControlView, about: aboutView, take: takeDetailView, auth: authView };
 
 function featureUnavailableView(name) {
   return `<section class="feature-unavailable"><span class="feature-unavailable-mark">◇</span><span class="section-kicker">CALLOUT ORIGINALS</span><h1>${escapeHtml(name)} is taking a break</h1><p>This feature is not available right now. Its existing content is safe, and it may return in the future.</p><button class="primary-action" type="button" data-back-feed>Back to the feed</button></section>`;
 }
 
+function prefillTakeFromLive(text) {
+  openComposerForUser();
+  const title=document.querySelector('#takeTitle');
+  if(title){title.value=String(text||'').slice(0,160);title.dispatchEvent(new Event('input',{bubbles:true}));}
+  const topics=document.querySelector('#takeTopics'); if(topics)topics.value='live moment';
+  updateComposerPreview();
+  showToast('Live Moment added to the composer.');
+}
+
+function calloutLiveHooks() {
+  return {
+    escape:escapeHtml,navigate,render:renderRoute,authenticated:Boolean(sessionUser),
+    signin:()=>{navigate('auth');showToast('Sign in to start a Live room.');},toast:showToast,
+    closeDialog:closeActionDialog,prefillTake:prefillTakeFromLive,
+    dialog:(kicker,title,body)=>{showActionDialog(actionDialogShell(kicker,title,body));setTimeout(()=>document.querySelectorAll('[data-live-participant-action]').forEach(button=>button.addEventListener('click',()=>{showToast(`${button.textContent.trim()} applied in this preview.`);closeActionDialog();})),0);}
+  };
+}
+
+function mountCalloutLive() { CalloutLive.mount(document,calloutLiveHooks()); }
+
 function renderRoute() {
   CalloutDiscovery.dispose();
+  CalloutLive.dispose();
   viewRenderers.swipe = () => CalloutDiscovery.view('swipe');
   viewRenderers.loops = () => CalloutDiscovery.view('loops');
   CalloutOriginals.dispose();
@@ -1986,6 +2015,7 @@ function renderRoute() {
     remember: posts => { state.discoveryPosts = posts; }
   });
   if (!featureBlocked && (route === 'heat-wheel' || route === 'take-rush')) CalloutOriginals.mount(route === 'take-rush' ? 'rush' : 'wheel', mainContent);
+  if (!featureBlocked && route === 'live') mountCalloutLive();
   renderProfileHeatFrame();
   if (routeAllowsAds()) initializeAds(mainContent);
   trackPageView();
@@ -2580,6 +2610,12 @@ function openPostMenu(id) {
   document.querySelector('[data-share-post]')?.addEventListener('click', () => sharePost(post));
   document.querySelector('[data-report-post]')?.addEventListener('click', () => openReportPost(post));
   const menu = document.querySelector('.post-menu-list');
+  if (isAuthor) {
+    const discuss = document.createElement('button');
+    discuss.type = 'button'; discuss.dataset.discussLive = ''; discuss.innerHTML = '<span>◉</span><span><strong>Discuss Live</strong><small>Open a Live room pinned to this Take</small></span>';
+    menu.insertBefore(discuss, menu.firstChild);
+    discuss.addEventListener('click', () => { closeActionDialog(); CalloutLive.startFromPost(post, calloutLiveHooks()); });
+  }
   const download = document.createElement('button');
   download.type = 'button'; download.dataset.downloadPost = ''; download.innerHTML = '<span>↓</span><span><strong>Download</strong><small>Export this live take as an image</small></span>';
   menu.insertBefore(download, menu.querySelector('[data-share-post]'));
