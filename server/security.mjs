@@ -250,6 +250,32 @@ export const schemas = {
   }).min(1),
   savedBoardOrder: Joi.object({ boardIds: Joi.array().max(20).unique().items(recordId).required() }),
   message: Joi.object({ recipient: plain(254).required(), message: plain(2000).required() }),
+  liveRoom: Joi.object({
+    title: plain(160).required(),
+    topic: Joi.string().valid('Movies', 'Music', 'Entertainment', 'Games', 'Life').default('Life'),
+    format: Joi.string().valid('Debate', 'Discussion', 'Podcast').default('Debate'),
+    sourcePostId: recordId.allow('', null).default(null),
+    scheduledFor: Joi.date().iso().greater('now').allow(null).default(null)
+  }),
+  liveChat: Joi.object({ text: plain(500).min(1).required() }),
+  liveParticipant: Joi.object({
+    role: Joi.string().valid('listener', 'speaker'),
+    mic: Joi.boolean(),
+    remove: Joi.boolean()
+  }).min(1),
+  liveCallout: Joi.object({
+    quote: plain(280).min(3).required(),
+    speakerId: recordId.allow('', null).default(null),
+    speakerName: plain(40).allow('').default(''),
+    duration: Joi.number().integer().min(10).max(60).default(20)
+  }),
+  liveCalloutVote: Joi.object({ value: Joi.string().valid('based', 'hot').required() }),
+  liveReaction: Joi.object({ value: Joi.string().valid('fire', 'based', 'hot', 'clap').required() }),
+  liveSignal: Joi.object({
+    targetUserId: recordId.required(),
+    type: Joi.string().valid('offer', 'answer', 'ice').required(),
+    payload: Joi.object().unknown(true).required()
+  }),
   report: Joi.object({ reason: Joi.string().valid('spam', 'harassment', 'offensive', 'other').required(), details: plain(500).allow('') })
   ,
   defense: Joi.object({ content: plain(10000).min(20).required() }),

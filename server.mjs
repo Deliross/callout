@@ -1,4 +1,5 @@
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcrypt';
@@ -19,6 +20,7 @@ import { buildExternalEmbed } from './server/externalEmbeds.mjs';
 import { discoverPosts } from './server/repository.mjs';
 import { BROWSER_COOKIE, browserKey, browserSessionKey, readBrowser, registerBrowserAccount, removeBrowserAccount, deleteBrowser, clearBrowserCookie, requireAccountCsrf } from './server/browserAccounts.mjs';
 import { generateElevenLabsSpeech, getTtsSettings, publicTtsVoices, saveTtsSettings, textHash } from './server/tts.mjs';
+import { addLiveMessage, createLiveCallout, createLiveRoom, endLiveRoom, getLiveRoom, joinLiveRoom, leaveLiveRoom, listLiveMessages, listLiveMoments, listLiveRooms, requestLiveMic, updateLiveParticipant, voteLiveCallout } from './server/live.mjs';
 import { publicLibraryPage, publicMemberPage, publicNotFoundPage, publicPage, publicPagePaths, publicTakePage, rootSeoMarkup, rssFeed, seoHead, siteOrigin, takePreviewSvg } from './server/publicPages.mjs';
 import {
   closeBattleSubmissions, createAboutUpdate, createBattle, createPinboardEntry, createTopic,
@@ -47,6 +49,7 @@ const port = Number(process.env.PORT || 4173);
 const app = express();
 app.use(compression());
 const messageStreams = new Map();
+const liveStreams = new Map();
 const requireFeature = name => async (_req, res, next) => {
   try { return await featureEnabled(name) ? next() : res.status(404).json({ error: 'This feature is not enabled yet.' }); }
   catch (error) { next(error); }
@@ -97,6 +100,15 @@ function pushMessageUpdate(userId) {
   for (const response of messageStreams.get(String(userId)) || []) response.write(`event: messages\ndata: ${JSON.stringify({ updated: true })}\n\n`);
 }
 
+function pushLiveEvent(roomId, event = 'room', payload = { updated: true }, targetUserId = '') {
+  const clients = liveStreams.get(String(roomId));
+  if (!clients) return;
+  for (const [userId, responses] of clients) {
+    if (targetUserId && String(userId) !== String(targetUserId)) continue;
+    for (const response of responses) response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  }
+}
+
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet({
@@ -137,6 +149,7 @@ const authLimiter = rateLimit({
 const ideaLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'The archive needs a moment. Try another idea later.' } });
 const embedLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Too many attachment previews. Try again in a minute.' } });
 const ttsLimiter = rateLimit({ windowMs: 24 * 60 * 60 * 1000, limit: Number(process.env.TTS_DAILY_LIMIT || 8), standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Daily voice generation limit reached. Try again tomorrow.' } });
+const liveLimiter = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Live is moving quickly. Try again in a moment.' } });
 
 async function establishSession(req, res, user) {
   const userId = String(user._id || user.id);
@@ -874,6 +887,92 @@ app.get('/api/admin/reporting/callback', requireAuth, requireAdmin, async (req, 
     console.error('AdSense authorization failed:', error.message);
     res.redirect('/#analytics');
   }
+});
+
+app.get('/api/live/rooms', optionalAuth, async (req, res, next) => {
+  try {
+    const filter = ['for-you', 'trending', 'following', 'scheduled'].includes(req.query.filter) ? req.query.filter : 'for-you';
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ rooms: await listLiveRooms(req.userId, filter) });
+  } catch (error) { next(error); }
+});
+app.get('/api/live/moments', optionalAuth, async (req, res, next) => {
+  try { res.set('Cache-Control', 'private, no-store'); res.json({ moments: await listLiveMoments(req.userId) }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms', liveLimiter, requireAuth, validate(schemas.liveRoom), async (req, res, next) => {
+  try { const room = await createLiveRoom(req.userId, req.body); pushLiveEvent(room.id); res.status(201).json({ room }); }
+  catch (error) { next(error); }
+});
+app.get('/api/live/rooms/:id', optionalAuth, async (req, res, next) => {
+  try { res.set('Cache-Control', 'private, no-store'); res.json({ room: await getLiveRoom(req.params.id, req.userId) }); }
+  catch (error) { next(error); }
+});
+app.get('/api/live/rooms/:id/messages', optionalAuth, async (req, res, next) => {
+  try { res.set('Cache-Control', 'private, no-store'); res.json({ messages: await listLiveMessages(req.params.id) }); }
+  catch (error) { next(error); }
+});
+app.get('/api/live/rooms/:id/stream', optionalAuth, async (req, res, next) => {
+  try {
+    await getLiveRoom(req.params.id, req.userId);
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    res.flushHeaders(); res.write(`event: ready\ndata: ${JSON.stringify({ userId: req.userId || '' })}\n\n`);
+    const roomId = String(req.params.id); const userId = String(req.userId || `guest-${crypto.randomUUID()}`);
+    const clients = liveStreams.get(roomId) || new Map(); const responses = clients.get(userId) || new Set();
+    responses.add(res); clients.set(userId, responses); liveStreams.set(roomId, clients);
+    pushLiveEvent(roomId, 'presence', { action: 'joined', userId: req.userId || '' });
+    const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20_000);
+    req.on('close', () => { clearInterval(heartbeat); responses.delete(res); if (!responses.size) clients.delete(userId); if (!clients.size) liveStreams.delete(roomId); else pushLiveEvent(roomId, 'presence', { action: 'left', userId: req.userId || '' }); });
+  } catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/join', liveLimiter, requireAuth, async (req, res, next) => {
+  try { const room = await joinLiveRoom(req.params.id, req.userId); pushLiveEvent(room.id); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/leave', liveLimiter, requireAuth, async (req, res, next) => {
+  try { const room = await leaveLiveRoom(req.params.id, req.userId); pushLiveEvent(room.id); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/mic-request', liveLimiter, requireAuth, async (req, res, next) => {
+  try { const room = await requestLiveMic(req.params.id, req.userId); pushLiveEvent(room.id); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.patch('/api/live/rooms/:id/participants/:userId', liveLimiter, requireAuth, validate(schemas.liveParticipant), async (req, res, next) => {
+  try { const room = await updateLiveParticipant(req.params.id, req.userId, req.params.userId, req.body); pushLiveEvent(room.id); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/callouts', liveLimiter, requireAuth, validate(schemas.liveCallout), async (req, res, next) => {
+  try { const room = await createLiveCallout(req.params.id, req.userId, req.body); pushLiveEvent(room.id); res.status(201).json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/callouts/vote', liveLimiter, requireAuth, validate(schemas.liveCalloutVote), async (req, res, next) => {
+  try { const room = await voteLiveCallout(req.params.id, req.userId, req.body.value); pushLiveEvent(room.id); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/reactions', liveLimiter, requireAuth, validate(schemas.liveReaction), async (req, res, next) => {
+  try {
+    const room = await getLiveRoom(req.params.id, req.userId);
+    if (room.status !== 'live' || !room.participants.some(person => person.id === String(req.userId))) return res.status(403).json({ error: 'Join the live room before reacting.' });
+    pushLiveEvent(req.params.id, 'reaction', { userId: req.userId, value: req.body.value }); res.status(202).json({ sent: true });
+  }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/signal', liveLimiter, requireAuth, validate(schemas.liveSignal), async (req, res, next) => {
+  try {
+    const room = await getLiveRoom(req.params.id, req.userId);
+    if (!room.participants.some(person => person.id === String(req.userId))) return res.status(403).json({ error: 'Join the room before using voice.' });
+    if (!room.participants.some(person => person.id === String(req.body.targetUserId))) return res.status(404).json({ error: 'That participant is no longer in the room.' });
+    pushLiveEvent(room.id, 'signal', { fromUserId: req.userId, type: req.body.type, payload: req.body.payload }, req.body.targetUserId);
+    res.status(202).json({ sent: true });
+  } catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/end', liveLimiter, requireAuth, async (req, res, next) => {
+  try { const room = await endLiveRoom(req.params.id, req.userId); pushLiveEvent(room.id, 'ended', { updated: true }); res.json({ room }); }
+  catch (error) { next(error); }
+});
+app.post('/api/live/rooms/:id/chat', liveLimiter, requireAuth, validate(schemas.liveChat), async (req, res, next) => {
+  try { const message = await addLiveMessage(req.params.id, req.userId, req.body.text); pushLiveEvent(req.params.id, 'chat', { message }); res.status(201).json({ message }); }
+  catch (error) { next(error); }
 });
 
 app.get('/api/messages', requireAuth, async (req, res, next) => {

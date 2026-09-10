@@ -714,9 +714,10 @@ function renderLiveMoments() {
   const roomMoments = window.CalloutLive?.momentCards?.() || '';
   if (roomMoments) {
     container.innerHTML = roomMoments;
-    container.querySelectorAll('[data-live-moment-open]').forEach(button => button.addEventListener('click', () => navigate('live/movies-2010s')));
+    container.querySelectorAll('[data-live-moment-open]').forEach(button => button.addEventListener('click', () => navigate(`live/${button.dataset.liveMomentOpen}`)));
     return;
   }
+  window.CalloutLive?.loadMoments?.({ api: apiFetch, momentsUpdated: renderLiveMoments });
   const live = state.topics.filter(topic => topic.state === 'live').slice(0, 3);
   container.innerHTML = live.length ? live.map(topic => {
     const remaining = Math.max(0, new Date(topic.endsAt).getTime() - Date.now());
@@ -1975,7 +1976,7 @@ function prefillTakeFromLive(text) {
 
 function calloutLiveHooks() {
   return {
-    escape:escapeHtml,navigate,render:renderRoute,authenticated:Boolean(sessionUser),
+    escape:escapeHtml,navigate,render:renderRoute,authenticated:Boolean(sessionUser),api:apiFetch,userId:sessionUser?currentUserId():'',
     signin:()=>{navigate('auth');showToast('Sign in to start a Live room.');},toast:showToast,
     closeDialog:closeActionDialog,prefillTake:prefillTakeFromLive,
     dialog:(kicker,title,body)=>{showActionDialog(actionDialogShell(kicker,title,body));setTimeout(()=>document.querySelectorAll('[data-live-participant-action]').forEach(button=>button.addEventListener('click',()=>{showToast(`${button.textContent.trim()} applied in this preview.`);closeActionDialog();})),0);}
@@ -1985,14 +1986,14 @@ function calloutLiveHooks() {
 function mountCalloutLive() { CalloutLive.mount(document,calloutLiveHooks()); }
 
 function renderRoute() {
+  const route = currentRoute();
   CalloutDiscovery.dispose();
-  CalloutLive.dispose();
+  CalloutLive.dispose(route);
   viewRenderers.swipe = () => CalloutDiscovery.view('swipe');
   viewRenderers.loops = () => CalloutDiscovery.view('loops');
   CalloutOriginals.dispose();
   viewRenderers['heat-wheel'] = () => CalloutOriginals.view('wheel');
   viewRenderers['take-rush'] = () => CalloutOriginals.view('rush');
-  const route = currentRoute();
   const previewingHiddenFeature = Boolean(
     sessionUser?.isAdmin && state.featurePreview === route && !state.features?.[route]
   );

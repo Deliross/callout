@@ -9,15 +9,16 @@ const css=fs.readFileSync(new URL('../assets/live.css',import.meta.url),'utf8');
 
 test('Live is a first-class Discover route and loads its isolated adapter',()=>{
   assert.match(html,/data-route="trending"[\s\S]*data-route="live"[\s\S]*data-route="guilds"/);
-  assert.match(html,/assets\/live\.js\?v=20260910-loop-2/);
+  assert.match(html,/assets\/live\.js\?v=20260910-backend/);
   assert.match(app,/const routes = new Set\(\[[^\]]*'live'/);
   assert.match(app,/live:\s*\(\) => CalloutLive\.view/);
 });
 
 test('Live completes Take to room to Call It Out to Moment to new Take loop',()=>{
   for(const token of ['Discuss Live','PINNED ORIGINAL TAKE','Call It Out','JUST SAID','co-live-countdown','Live Moment created','Create New Take','LIVE ENDED','Heat Generated','View Live Moments']) assert.match(app+live,new RegExp(token));
-  assert.match(live,/remaining:18/);
-  assert.match(live,/function endCallout/);
+  assert.match(live,/currentCallout\.endsAt/);
+  assert.match(live,/\/api\/live\/rooms/);
+  assert.match(live,/function startCountdown/);
   assert.match(live,/function startFromPost/);
   assert.match(app,/prefillTakeFromLive/);
 });
